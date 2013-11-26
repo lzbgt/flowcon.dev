@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq.utils.jsonapi, datetime
+import zmq.utils.jsonapi, datetime, sys
 
 every = datetime.timedelta(seconds=5)
 
@@ -39,7 +39,7 @@ def main():
         print "capturing tags:"
         for ft in flowtags:
             print '  %s'%(flowtypes[ft])
-    
+        sys.stdout.flush()
         flowrepo = {}
         count = 0
         now = None
@@ -58,12 +58,14 @@ def main():
                 now = datetime.datetime.now()
                 if prev is None or (prev + every) <= now:
                     print "%4d[%d/%d] %s %s"%(len(flowrepo)*1000/count, len(flowrepo), count, flowkey, now)
+                    sys.stdout.flush()
                     prev = now
             frec[0] += 1
             #showflow(count, dd)
     except KeyboardInterrupt:
         print "closing"
         ctx.destroy()
+    sys.stdout.flush()
 
 def showflow(count, dd):
     print "flow %d"%(count)
