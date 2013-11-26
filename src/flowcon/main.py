@@ -31,35 +31,39 @@ flowtypes = {
 
 def main():
     ctx = zmq.Context()
-    sock = ctx.socket(zmq.SUB)
-    sock.connect('tcp://10.1.31.81:5556')
-    sock.setsockopt(zmq.SUBSCRIBE, 'flow')
-    flowtags = ['8','7','4','12','11']
-    print "capturing tags:"
-    for ft in flowtags:
-        print '  %s'%(flowtypes[ft])
-
-    flowrepo = {}
-    count = 0
-    now = None
-    prev = None
-    while True:
-        msg = sock.recv_multipart()
-        dd = zmq.utils.jsonapi.loads(msg[1])
-        count += 1
-        flowkey = ''
+    try:
+        sock = ctx.socket(zmq.SUB)
+        sock.connect('tcp://10.1.31.81:5556')
+        sock.setsockopt(zmq.SUBSCRIBE, 'flow')
+        flowtags = ['8','7','4','12','11']
+        print "capturing tags:"
         for ft in flowtags:
-            flowkey += ':'+str(dd[ft])
-        frec = flowrepo.get(flowkey, None)
-        if frec is None:
-            frec = [0]
-            flowrepo[flowkey] = frec
-            now = datetime.datetime.now()
-            if prev is None or (prev + every) <= now:
-                print "%4d[%d/%d] %s %s"%(len(flowrepo)*1000/count, len(flowrepo), count, flowkey, now)
-                prev = now
-        frec[0] += 1
-        #showflow(count, dd)
+            print '  %s'%(flowtypes[ft])
+    
+        flowrepo = {}
+        count = 0
+        now = None
+        prev = None
+        while True:
+            msg = sock.recv_multipart()
+            dd = zmq.utils.jsonapi.loads(msg[1])
+            count += 1
+            flowkey = ''
+            for ft in flowtags:
+                flowkey += ':'+str(dd[ft])
+            frec = flowrepo.get(flowkey, None)
+            if frec is None:
+                frec = [0]
+                flowrepo[flowkey] = frec
+                now = datetime.datetime.now()
+                if prev is None or (prev + every) <= now:
+                    print "%4d[%d/%d] %s %s"%(len(flowrepo)*1000/count, len(flowrepo), count, flowkey, now)
+                    prev = now
+            frec[0] += 1
+            #showflow(count, dd)
+    except KeyboardInterrupt:
+        print "closing"
+        ctx.destroy()
 
 def showflow(count, dd):
     print "flow %d"%(count)
