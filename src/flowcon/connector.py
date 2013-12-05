@@ -89,6 +89,7 @@ class Connector(object):
         return ret
 
     def _on_mon(self, msg):
+        print msg
         values = struct.unpack("=qqq", msg[0])
         event = values[0] & 0xFFFFFFFF
         ptr = values[1]; ptr
