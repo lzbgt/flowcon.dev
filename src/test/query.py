@@ -66,7 +66,13 @@ class Query(flowcon.connector.Connection):
         return
 
     def on_msg(self, msg):
-        print 'msg',msg
+        rep = zmq.utils.jsonapi.loads(msg[0])
+        ll = rep['counts']
+        print "got %d entries"%(len(ll))
+        for l in ll:
+            print '  %s'%l
+        tots = rep['totals']
+        print '  totals: %s entries: %d'%(tots['counts'], tots['entries'])
         
     def on_close(self, sid):
         now = datetime.datetime.now()
@@ -74,7 +80,7 @@ class Query(flowcon.connector.Connection):
         self._sender = self._do_nothing
 
 def process(addr, period, fids):
-    query = {'fields':fids}
+    query = {'fields':fids, 'shape':{'max':'bytes', 'count':10}}
     if period: query['period'] = period
 
     q = Query(query)

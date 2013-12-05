@@ -4,14 +4,13 @@ Created on Dec 4, 2013
 @author: schernikov
 '''
 
-import datetime
-
 import logger
 
 class Source(object):
     def __init__(self, addr, stamp):
         self._addr = addr
-        self.stamp = stamp
+    def on_stamp(self, stamp):
+        self._stamp = stamp
     @property
     def address(self):
         return self._addr
@@ -24,14 +23,62 @@ class Query(object):
     endstamp = '21'
 
     def __init__(self, qry):
-        self._reps, self._cnts, self._chks = self._fieldlist(qry['fields'])
+        counters = (self.bytesid, self.packetsid)
+        self._reps, self._cnts, self._chks = self._fieldlist(qry['fields'], counters)
         self._fields = list(self._reps)
         self._fields.extend(self._cnts)
         self._period = qry.get('period', None)
-        if self._period: self._period = datetime.timedelta(seconds=max(int(self._period), 1))
+        self._shape = self._on_shape(qry.get('shape', None), counters)
+        if self._period: self._period = max(int(self._period), 1)
         self._end = None
-        self._flows = {}
         self._reconrds = set()
+        self._reset()
+
+    def _reset(self):
+        self._flows = {}
+        self._totals = [0 for _ in self._cnts]
+        
+    def _on_shape(self, shape, counters):
+        if not shape: return None
+        field = shape.get('max', None)
+        if field is None:
+            field = shape.get('min', None)
+            if field is None:
+                logger.dump("no shape function defined")
+                return None
+            reverse = False
+        else:
+            reverse = True
+        if field == 'bytes':
+            nm = self.bytesid
+        elif field == 'packets':
+            nm = self.packetsid
+        elif field is None:
+            pass
+        else:
+            logger.dump("unexpected sort field '%s'"%field)
+        pos = 0
+        for c in counters:
+            if c == nm:
+                return reverse, pos, shape.get('count', 0)
+            pos += 1
+        return None
+
+    def _reshape(self, res):
+        if not self._shape: return res
+        reverse, pos, count = self._shape
+        pos += len(self._reps)
+        res = sorted(res, key=lambda l: l[pos], reverse=reverse)
+        if count <= 0: return res
+        return res[:count]
+
+    def _mkreply(self, res, totals, count):
+        reply = {'counts':res}
+        if totals:
+            tots = ['*' for _ in self._reps]
+            tots.extend(totals)
+            reply['totals'] = {'counts':tots, 'entries':count}
+        return reply
 
     def addrec(self, rec):
         self._reconrds.add(rec)
@@ -47,8 +94,8 @@ class Query(object):
         return self._chks
 
     def collect(self, sources, dd):
-        if not self._period: 
-            return [dd[f] for f in self._fields]
+        if not self._period:
+            return self._mkreply([[dd[f] for f in self._fields]], None, 1)
 
         stamp = dd[self.startstamp]
         addr = dd[self.srcaddress]
@@ -56,21 +103,9 @@ class Query(object):
         if source is None:
             source = Source(addr, stamp)
             sources[addr] = source
-            self._end = stamp+self._period
-        
-        if source.stamp != stamp:
-            if source.stamp < stamp:
-                source.stamp = stamp
-                logger.dump("%s: %d (%d)"%(source.address, stamp, self._end))
-                if self._end >= stamp:
-                    logger.dump("%s"%dd)
-                    self._end = stamp+self._period
-                    self._mkcollection(self._flows)
-                    self._flows = {}
-            else:
-                #logger.dump("%s: skewed timing %d > %d"%(source.address, source.stamp, stamp))
-                return None
 
+        source.on_stamp(stamp)
+        
         key = tuple([dd[f] for f in self._reps])
         flow = self._flows.get(key, None)
         if flow is None:
@@ -78,17 +113,29 @@ class Query(object):
             self._flows[key] = flow
         pos = 0
         for f in self._cnts:
-            flow[pos] += dd[f]
+            val = dd[f]
+            flow[pos] += val
+            self._totals[pos] += val
             pos += 1
         return None
 
     def results(self, now):
-        if not self._period: return None
-        if self._end is None or self._end <= now:
-            logger.dump("time to report")
+        if not self._end:
+            if not self._period:
+                return None
             self._end = now+self._period
-        #TODO: finish
-        return None
+            return None
+        if self._end > now: return None
+        self._end = now+self._period
+        flows = self._flows
+        tots = self._totals
+        self._reset()
+        res = []
+        for k, v in flows.items():
+            l = list(k)
+            l.extend(v)
+            res.append(l)
+        return self._mkreply(self._reshape(res), tots, len(flows))
 
     def _mkcollection(self, flows):
         res = []
@@ -98,7 +145,7 @@ class Query(object):
             res.append(l)
         return res
 
-    def _fieldlist(self, fields):
+    def _fieldlist(self, fields, counters):
         ls = set()
         cs = []
         for fk, fv in fields.items():
@@ -106,6 +153,5 @@ class Query(object):
                 ls.add(int(fk))
             else:
                 cs.append((fk, fv))
-        counters = (self.bytesid, self.packetsid)
         ls = ['%d'%x for x in sorted(ls.difference(counters))]
         return ls, ['%d'%x for x in counters], cs

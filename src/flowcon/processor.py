@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime#, zmq.utils.monitor
+import zmq, datetime, time#, zmq.utils.monitor
 
 from zmq.eventloop import ioloop
 ioloop.install()
@@ -110,8 +110,9 @@ class FlowProc(connector.Connection):
                 del self._addresses[addr]
                 logger.dump("dropping peer from %s"%([addr]))
         # check for unwanted queues and send updates to listeners
+        stamp = int(time.mktime(now.timetuple()))
         for k, q in self._queries.items():
-            res = q.results(now)
+            res = q.results(stamp)
             self._send_res(k, q, res)
 
     def on_msg(self, msg):
@@ -147,7 +148,7 @@ class FlowProc(connector.Connection):
                 record.query = q
         
 class QReq(object):
-    misses = 3
+    maxmisses = 3
 
     def __init__(self, addr, qry, hb):
         self._misses = 0
@@ -163,8 +164,9 @@ class QReq(object):
         
     def check(self, now):
         if self._end > now: return True
+        self._end = now+self._hb
         self._misses += 1
-        if self._misses >= self.misses:
+        if self._misses >= self.maxmisses:
             self._query.delrec(self)
             return False
         return True
