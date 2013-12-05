@@ -132,8 +132,8 @@ class FlowProc(connector.Connection):
             logger.dump("unknown request: %s"%req)
             return
 
-        hb = qry.get('heartbeat', self.heartbeat)
-        logger.dump("got query: %s from %s (hb:%.1f)"%(query, [addr], hb))
+        hb = int(qry.get('heartbeat', self.heartbeat))
+        logger.dump("got query: %s from %s (hb:%ds)"%(query, [addr], hb))
         q = self._queries.get(req, None)
         if not q:
             q = querymod.Query(query)
@@ -155,7 +155,7 @@ class QReq(object):
         self._addr = addr
         self._query = qry
         qry.addrec(self)
-        self._hb = datetime.timedelta(seconds=hb/1000.0)
+        self._hb = datetime.timedelta(seconds=hb)
         self.stamp()
 
     def stamp(self):

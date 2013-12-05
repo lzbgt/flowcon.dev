@@ -10,7 +10,7 @@ from zmq.eventloop import ioloop, zmqstream
 ioloop.install()
 
 class Connection(object):
-    heartbeat = 10000 # ms
+    heartbeat = 10 # seconds
     hbmessage = 'hb'
     
     def send(self, msg):

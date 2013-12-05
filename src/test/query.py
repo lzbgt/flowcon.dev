@@ -13,7 +13,12 @@ def main():
     parser.add_argument('-L', '--list', help='list all flow fields', action='store_true')
     parser.add_argument('-i', '--interface', help='interface to connect to (ex. "tcp://host:1234")')
     parser.add_argument('-f', '--field', help='IPFix field names to capture from "--list"', nargs="+")
-    parser.add_argument('-p', '--period', help='reporting period in seconds')
+    parser.add_argument('-p', '--period', help='reporting period in seconds', type=int)
+    parser.add_argument('-m', '--method', help='sorting methods', choices=['max', 'min'])
+    parser.add_argument('-s', '--sortby', help='sorting field; considered only when "--method" is provided', choices=['bytes', 'packets'])
+    parser.add_argument('-c', '--count', help='max number of entries to report', type=int)
+    parser.add_argument('-b', '--heartbeat', help='heartbeat interval in seconds (default: %(default)s)', 
+                        default=Query.heartbeat, type=int)
     
     args = parser.parse_args()
     
@@ -41,14 +46,18 @@ def main():
         if not args.interface:
             print "interface is not provided"
             return
-        process(args.interface, args.period, fids)
+        if args.method and not args.sortby:
+            print "don't know how to sort with '%s'; --sortby is not provided"%(args.method)
+            return
+        process(args.interface, args.period, args.method, args.sortby, args.count, args.heartbeat, fids)
         return
 
     parser.print_help()
 
 class Query(flowcon.connector.Connection):
-    def __init__(self, qry):
-        q = zmq.utils.jsonapi.dumps({'query':qry, 'heartbeat':self.heartbeat})
+    def __init__(self, qry, hb=None):
+        if hb is None: hb = self.heartbeat
+        q = zmq.utils.jsonapi.dumps({'query':qry, 'heartbeat':hb})
         print "sending query:", q
         self._qry = q
         self._sender = self._do_nothing
@@ -68,22 +77,30 @@ class Query(flowcon.connector.Connection):
     def on_msg(self, msg):
         rep = zmq.utils.jsonapi.loads(msg[0])
         ll = rep['counts']
-        print "got %d entries"%(len(ll))
+        tots = rep.get('totals', None)
+        if tots:
+            totmsg = '(totals: %s entries: %d)'%(tots['counts'], tots['entries'])
+        else:
+            totmsg = ''
+        print "got %d entries %s"%(len(ll), totmsg)
         for l in ll:
             print '  %s'%l
-        tots = rep['totals']
-        print '  totals: %s entries: %d'%(tots['counts'], tots['entries'])
+        print
         
     def on_close(self, sid):
         now = datetime.datetime.now()
         print "%s: disconnected from %d"%(now, sid)
         self._sender = self._do_nothing
 
-def process(addr, period, fids):
-    query = {'fields':fids, 'shape':{'max':'bytes', 'count':10}}
+def process(addr, period, method, sortby, count, hb, fids):
+    query = {'fields':fids}
+    shape = {}
+    if method: shape[method] = sortby
+    if count: shape['count'] = count
+    if shape: query['shape'] = shape
     if period: query['period'] = period
 
-    q = Query(query)
+    q = Query(query, hb)
 
     try:
         conn = flowcon.connector.Connector()
