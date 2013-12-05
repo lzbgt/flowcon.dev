@@ -4,7 +4,7 @@ Created on Dec 3, 2013
 @author: schernikov
 '''
 
-import zmq, struct
+import struct, zmq.utils.monitor
 from zmq.eventloop import ioloop, zmqstream
 
 ioloop.install()
@@ -80,24 +80,16 @@ class Connector(object):
         self._con.on_msg(msg)
 
     def _mkmon(self, sock):
-        addr = "inproc://monitor.s-%d" % sock.FD
-        # attach monitoring socket
-        sock.monitor(addr, zmq.EVENT_CONNECTED | zmq.EVENT_DISCONNECTED)
-        # create new PAIR socket and connect it
-        ret = sock.context.socket(zmq.PAIR)
-        ret.connect(addr)
-        return ret
+        return sock.get_monitor_socket(zmq.EVENT_CONNECTED | zmq.EVENT_DISCONNECTED)
 
     def _on_mon(self, msg):
-        print msg
-        values = struct.unpack("=qqq", msg[0])
-        event = values[0] & 0xFFFFFFFF
-        ptr = values[1]; ptr
-        fd = values[2] & 0xFFFFFFFF
+        ev = zmq.utils.monitor.parse_monitor_message(msg)
+        event = ev['event']
+        endpoint = ev['endpoint']
         if event == zmq.EVENT_CONNECTED:
-            self._con.on_open(fd)
+            self._con.on_open(endpoint)
         elif event == zmq.EVENT_DISCONNECTED:
-            self._con.on_close(fd)
+            self._con.on_close(endpoint)
 
     def close(self):
         self._ctx.destroy()

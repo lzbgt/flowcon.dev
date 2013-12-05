@@ -67,7 +67,7 @@ class Query(flowcon.connector.Connection):
     
     def on_open(self, sid):
         now = datetime.datetime.now()
-        print "%s: connected from %d"%(now, sid)
+        print "%s: connected with %s"%(now, sid)
         self._sender = self.send
         self._sender(self._qry)
     
@@ -89,7 +89,7 @@ class Query(flowcon.connector.Connection):
         
     def on_close(self, sid):
         now = datetime.datetime.now()
-        print "%s: disconnected from %d"%(now, sid)
+        print "%s: disconnected from %s"%(now, sid)
         self._sender = self._do_nothing
 
 def process(addr, period, method, sortby, count, hb, fids):
