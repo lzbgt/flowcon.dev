@@ -75,7 +75,7 @@ class Query(object):
     def _mkreply(self, res, totals, count):
         reply = {'counts':res}
         if totals:
-            tots = ['*' for _ in self._reps]
+            tots = list(self._reps)
             tots.extend(totals)
             reply['totals'] = {'counts':tots, 'entries':count}
         return reply

@@ -36,12 +36,19 @@ def main():
         print "Capturing fields:"
         fids = {}
         for fl in args.field:
-            fset = names.namesmap.get(fl, None)
+            idx = fl.find('=')
+            if idx > 0:
+                nm = fl[:idx]
+                val = fl[idx+1:]
+                fset = names.namesmap.get(nm, None)
+            else:
+                fset = names.namesmap.get(fl, None)
+                val = '*'
             if not fset:
                 print "don't know what to do with '%s' field"%(fl)
                 return
             print header.format(*fset)
-            fids[fset[0]] = '*'
+            fids[fset[0]] = val
         print
         if not args.interface:
             print "interface is not provided"
