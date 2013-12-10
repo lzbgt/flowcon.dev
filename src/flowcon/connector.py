@@ -4,7 +4,7 @@ Created on Dec 3, 2013
 @author: schernikov
 '''
 
-import struct, zmq.utils.monitor
+import zmq.utils.monitor
 from zmq.eventloop import ioloop, zmqstream
 
 ioloop.install()

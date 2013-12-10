@@ -30,6 +30,12 @@ class FlowProc(connector.Connection):
             for rec in recs:
                 self.send_multipart([rec.address, res])
                     
+    def _on_status(self, addr, msg):
+        res = []
+        for s in self._sources.values():
+            res.append({'address':s.address, 'stamp':s.stamp, 'fields':s.fields})
+        self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
+                    
     def on_flow(self, msg):
         #print msg
         dd = zmq.utils.jsonapi.loads(msg[1])
@@ -66,24 +72,28 @@ class FlowProc(connector.Connection):
 
         qry = zmq.utils.jsonapi.loads(req)
         query = qry.get('query', None)
-        if not query:
-            logger.dump("unknown request: %s"%req)
+        if query:
+            hb = int(qry.get('heartbeat', self.heartbeat))
+            logger.dump("got query: %s from %s (hb:%ds)"%(query, [addr], hb))
+            q = self._queries.get(req, None)
+            if not q:
+                q = querymod.Query(query)
+                self._queries[req] = q
+            record = self._addresses.get(addr, None)
+            if not record:
+                record = QReq(addr, q, hb)
+                self._addresses[addr] = record
+            else:
+                if record.query != q:
+                    logger.dump("different query from same address")
+                    record.query = q
             return
-
-        hb = int(qry.get('heartbeat', self.heartbeat))
-        logger.dump("got query: %s from %s (hb:%ds)"%(query, [addr], hb))
-        q = self._queries.get(req, None)
-        if not q:
-            q = querymod.Query(query)
-            self._queries[req] = q
-        record = self._addresses.get(addr, None)
-        if not record:
-            record = QReq(addr, q, hb)
-            self._addresses[addr] = record
-        else:
-            if record.query != q:
-                logger.dump("different query from same address")
-                record.query = q
+        stat = qry.get('status', None)
+        if not (stat is None):
+            self._on_status(addr, stat)
+            return
+        logger.dump("unknown request: %s"%req)
+        return
         
 class QReq(object):
     maxmisses = 3
@@ -122,14 +132,14 @@ class QReq(object):
         self._query = q
         q.addrec(self)
         
-def setup(insock, outsock, qrysock):
+def setup(insock, servsock, qrysock):
     try:
         conn = connector.Connector()
         
         fproc = FlowProc()
         
         conn.subscribe(insock, 'flow', fproc.on_flow)
-
+        
         conn.timer(1000, fproc.on_time)
 
         conn.listen(qrysock, fproc)

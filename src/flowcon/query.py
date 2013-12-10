@@ -7,13 +7,21 @@ Created on Dec 4, 2013
 import logger
 
 class Source(object):
-    def __init__(self, addr, stamp):
+    def __init__(self, addr, stamp, fields):
         self._addr = addr
+        self._field = fields
     def on_stamp(self, stamp):
         self._stamp = stamp
+        
     @property
     def address(self):
         return self._addr
+    @property
+    def stamp(self):
+        return self._stamp
+    @property
+    def fields(self):
+        return self._field
 
 class Query(object):
     bytesid = 1
@@ -101,7 +109,7 @@ class Query(object):
         addr = dd[self.srcaddress]
         source = sources.get(addr, None)
         if source is None:
-            source = Source(addr, stamp)
+            source = Source(addr, stamp, dd.keys())
             sources[addr] = source
 
         source.on_stamp(stamp)

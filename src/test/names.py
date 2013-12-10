@@ -87,12 +87,13 @@ nameset = [
     ["335","SELECTOR_NAME","","Sampler name"],
 ]
 
-def nmap(nset):
+def nmap(nset, pos):
     res = {}
     for nms in nset:
-        fix = nms[2]
+        fix = nms[pos]
         if not fix: continue
         res[fix] = nms
     return res
 
-namesmap = nmap(nameset)
+namesmap = nmap(nameset, 2)
+fullmap = nmap(nameset, 0)
