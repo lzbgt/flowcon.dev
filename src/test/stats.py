@@ -34,15 +34,17 @@ def process(addr, f, s):
     stats = zmq.utils.jsonapi.loads(message)
     if f:
         fset = set()
-        for stat in stats:
-            for f in stat['fields']:
-                fset.add(int(f))
+        for addr, flds in stats['fields'].items():
+            print "%s"%(addr)
+            print "  %s"%(flds)
+            fset.update(flds)
+        print
         for num in sorted(fset):
             nmp = names.fullmap['%d'%num]
             print " %5d %s"%(num, nmp[3])
         print
     if s:
-        pprint.pprint(stats)    
+        pprint.pprint(stats['stats'])    
     
 
 if __name__ == '__main__':
