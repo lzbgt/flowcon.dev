@@ -121,33 +121,33 @@ class Source(Collector):
                 'seconds':seconds,
                 'totals':tuple(self._totals)}
         
-    def history(self, collecton, newest, oldest, keycall):
+    def history(self, collecton, newest, oldest, keycall, timekey=lambda k: k):
         """Collect history of flows for seconds, minutes, hours or days.
            Need to make sure duplicate entries are not counted. 
            Ex. older seconds and minutes aggregated from these seconds should be either one or another, not both.    
         """
-        self._history(collecton, self._seconds, newest, oldest, keycall)
+        self._history(collecton, self._seconds, newest, oldest, keycall, timekey)
         
-    def _history(self, collection, group, step, newest, oldest, keycall):
+    def _history(self, collection, group, step, newest, oldest, keycall, timekey):
         counts = range(len(self._cnts))
         if newest or oldest:
             if not newest:
                 for stamp, flows in group:
                     if stamp <= oldest: continue     # not reached yet
-                    self._hiscall(collection, flows, keycall, counts)
+                    self._hiscall(collection, timekey(stamp), flows, keycall, counts)
                 return
             if not oldest:
                 for stamp, flows in group:
                     if stamp > newest: break        # time scope is over
-                    self._hiscall(collection, flows, keycall, counts)
+                    self._hiscall(collection, timekey(stamp), flows, keycall, counts)
                 return
             for stamp, flows in group:
                 if stamp > newest: break        # time scope is over
                 if stamp <= oldest: continue     # not reached yet
-                self._hiscall(collection, flows, keycall, counts)
+                self._hiscall(collection, timekey(stamp), flows, keycall, counts)
             return
         for stamp, flows in group:
-            self._hiscall(collection, stamp, flows, keycall, counts) 
+            self._hiscall(collection, timekey(stamp), flows, keycall, counts) 
 
     def _hiscall(self, collection, stamp, flows, keycall, counts):
         for key, flow in flows.items():
@@ -158,7 +158,8 @@ class Source(Collector):
                 entry = [0 for _ in self._cnts]
                 collection[k] = entry
             for p in counts:
-                entry[p] += flow[p]
+                val = flow[p]
+                entry[p] += val
         
     def address(self):
         return self._addr
@@ -246,12 +247,21 @@ class Query(Collector):
             pos += 1
         return None
 
-    def _reshape(self, res, insert=None):
+    def _reshape(self, res, insert=None, totals=True):
+        """Totals collection may be quite time consuming"""
+        tots = [0 for _ in self._cnts]
+        if totals:
+            counts = range(len(self._cnts))
+            for k, v in res:
+                for p in counts:
+                    tots[p] += v[p]
+        num = len(res)
+
         if not self._shape: return res
         reverse, pos, count = self._shape
         srtd = sorted(res, key=lambda l: l[1][pos], reverse=reverse)
         if count > 0: srtd = srtd[:count]
-        if insert is None: return srtd
+        if insert is None: return srtd, tots, num
         # need to plug value into keys
         pos, val = insert
         pos += 1
@@ -260,7 +270,7 @@ class Query(Collector):
             l = list(k)
             l.insert(pos, val)
             res.append([l, v])
-        return res
+        return res, tots, num
 
     def _mkreply(self, res, totals, count):
         reply = {'counts':res}
@@ -274,7 +284,8 @@ class Query(Collector):
         flows = self._flows
         tots = self._totals
         self._reset()
-        return self._mkreply(self._reshape(flows.items()), tots, len(flows))
+        res, _, num = self._reshape(flows.items(), totals=False)
+        return self._mkreply(res, tots, num)
     
 class LiveQuery(Query):
     def __init__(self, fields, shape):
@@ -351,8 +362,7 @@ class HistoryQuery(Query):
                 break
         # set or subset of sources could also be empty here
         return sources
-
-    def _mkcaller(self):
+    def _sel(self):
         pos = 0
         checker = []
         keyer = []
@@ -363,6 +373,23 @@ class HistoryQuery(Query):
             fv = self._reps.get(ft, None)
             if fv: keyer.append(pos)            
             pos += 1
+        return checker, keyer
+
+class FlowQuery(HistoryQuery):
+    """ Aggregate historic data over time.
+        Result: counts vs. flows, no time dimension after aggregation. 
+    """
+
+    def __init__(self, fields, shape, newest, oldest):
+        super(self.__class__, self).__init__(fields, shape, newest, oldest)
+
+    def _mkcaller(self):
+        """ Need to redesign to consider shaper
+            This will allow to reduce collected dictionary size from very beginning 
+            according to shaping method and required count. 
+            But how do we account for total number of flows statistics then?
+        """
+        checker, keyer = self._sel()
         onekey = tuple()
         if checker and keyer: 
             def keycall(ftuple, stamp):
@@ -385,14 +412,6 @@ class HistoryQuery(Query):
                 # key per flow tuple
                 return onekey
         return keycall
-
-class FlowQuery(HistoryQuery):
-    """ Aggregate historic data over time.
-        Result: counts vs. flows, no time dimension after aggregation. 
-    """
-
-    def __init__(self, fields, shape, newest, oldest):
-        super(self.__class__, self).__init__(fields, shape, newest, oldest)
         
     def collect_sources(self, sources):
         """need to take care of all `special` fields: srcaddress, flowtuple
@@ -401,34 +420,93 @@ class FlowQuery(HistoryQuery):
         keycall = self._mkcaller()
         # check if source address needs to be reported in each flow record
         collection = []
+        totals = [0 for _ in self._cnts]
+        numbers = 0
+        counts = range(len(self._cnts))
         try:
             pos = self._reps.index(Source.srcaddress)
             # source address has to be included into keys  
             for s in sources:
                 coll = {}
                 s.history(coll, self._newest, self._oldest, keycall)
-                collection.extend(self._reshape(coll.items(), (pos, s.address)))
+                
+                res, tot, num = self._reshape(coll.items(), (pos, s.address))
+                for p in counts: totals[p] += tot[p]
+                numbers += num  # all keys are unique between sources, so combined numbers are correct
+                 
+                collection.extend(res)
         except:
             for s in sources:
                 coll = {}
                 s.history(coll, self._newest, self._oldest, keycall)
-                collection.extend(self._reshape(coll.items()))
-        return self._mkreply(self._reshape(collection), tots, len(flows))
+                
+                res, tot, num = self._reshape(coll.items())
+                for p in counts: totals[p] += tot[p]
+                
+                collection.extend(res)
+            numbers = 0  # it's unknown how many unique keys were here
+        
+        res, _, _ = self._reshape(coll.items(), totals=False) 
+        return self._mkreply(self._reshape(collection), totals, numbers)
 
 class TemporalQuery(HistoryQuery):
     """ Aggregate historic data over flows.
         Result: counts vs. time steps, no flow dimension after aggregation. 
     """
-    def __init__(self, fields, newest, oldest, step):
+    def __init__(self, fields, newest, oldest, granules):
         """ need to ignore all 'report' (i.e. '*') fields since it will be aggregated over flows anyways """
         super(self.__class__, self).__init__(fields, None, newest, oldest)
         self._reps = [] # nullify reportable fields
-        
+        self._gradules = granules
+
+    def _mkcaller(self):
+        checker, _ = self._sel()
+        if checker:
+            def keycall(ftuple, skey):
+                # key per flow tuple
+                for p, v in checker: 
+                    if ftuple[p] != v: return None  # filter out this flow
+                return skey
+        else:
+            def keycall(ftuple, skey):
+                # key per flow tuple
+                return skey
+
+        return keycall
+
+    def _mkkeyer(self):
+        if self._gradules == datetime.time.second:
+            def keyer(s):
+                return datetime.datetime.combine(s.date(), datetime.time(s.hour, s.minute, s.second))
+        elif self._gradules == datetime.time.minute:
+            def keyer(s):
+                return datetime.datetime.combine(s.date(), datetime.time(s.hour, s.minute))
+        elif self._gradules == datetime.time.hour:
+            def keyer(s):
+                return datetime.datetime.combine(s.date(), datetime.time(s.hour))
+        else:
+            return None
+
     def collect_sources(self, sources):
         sources = self.__subsource(sources)
 
         keycall = self._mkcaller()
         
+        totals = [0 for _ in self._cnts]
+        counts = range(len(self._cnts))
+
+        timekey = self._mkkeyer()
+        if not timekey: return self._mkreply([], totals, 0)
+
         collection = {}
         for s in sources:
-            s.history(collection, self._newest, self._oldest, keycall)
+            s.history(collection, self._newest, self._oldest, keycall, timekey)
+            
+        stamps = sorted(collection)
+        res = []
+        for s in stamps:
+            v = collection[s]
+            res.append([tostamp(s), v])
+            for p in counts: totals[p] += v[p]
+
+        return self._mkreply(res, totals, len(collection))
