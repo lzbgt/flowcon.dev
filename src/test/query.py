@@ -100,12 +100,14 @@ class Query(flowcon.connector.Connection):
         self._sender = self._do_nothing
 
 def process(addr, period, method, sortby, count, hb, fids):
-    query = {'fields':fids}
+    flows = {'fields':fids}
+    query = {'flows':flows}
     shape = {}
     if method: shape[method] = sortby
     if count: shape['count'] = count
-    if shape: query['shape'] = shape
-    if period: query['period'] = period
+    if shape: flows['shape'] = shape
+    
+    if period: query['time'] = period
 
     q = Query(query, hb)
 

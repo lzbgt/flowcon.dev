@@ -66,9 +66,9 @@ class Connector(object):
         stream_sub = zmqstream.ZMQStream(sockin)
         stream_sub.on_recv(callback)
         
-    def timer(self, milliseconds, on_time):
+    def timer(self, seconds, on_time):
         loop = ioloop.IOLoop.instance()
-        timer = ioloop.PeriodicCallback(on_time, milliseconds, loop)
+        timer = ioloop.PeriodicCallback(on_time, seconds*1000, loop)
         timer.start()
         
     def publish(self, addr):

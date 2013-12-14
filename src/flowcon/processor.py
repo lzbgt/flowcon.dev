@@ -171,7 +171,7 @@ def setup(insock, servsock, qrysock):
         
         conn.subscribe(insock, 'flow', fproc.on_flow)
         
-        conn.timer(1000, fproc.on_time)
+        conn.timer(1, fproc.on_time)
 
         conn.listen(qrysock, fproc)
         

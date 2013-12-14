@@ -12,7 +12,7 @@ tzutc = dateutil.tz.tzutc()
 def tostamp(stamp):
     return str(stamp.replace(tzinfo=tzutc))
 
-def _cleanupfields(fields):
+def _cleanuptimefields(fields):
     if Source.startstamp in fields:
         logger.dump("ignoring `start time`[%s] field in query"%(Source.startstamp))
         del fields[Source.startstamp]
@@ -77,7 +77,7 @@ class Source(Collector):
     def __init__(self, addr):
         ff = {}
         for fid in self.flowtuple: ff[fid] = '*'  
-        super(self.__class__, self).__init__(ff)
+        super(Source, self).__init__(ff)
         self._addr = addr
         self._field = None
         self._attributes = None
@@ -164,7 +164,9 @@ class Source(Collector):
     def address(self):
         return self._addr
 
-def stamp2time(stamp, now):
+def stamp2time(stamp):
+    if stamp is None: return None
+    now = datetime.datetime.utcnow()
     try:
         # check if it's relative time stamp in seconds back into history
         then = float(stamp)
@@ -178,44 +180,56 @@ def stamp2time(stamp, now):
         if tm >= now:
             raise Exception("absolute time stamp %s should be older than current time (%s)"%(stamp, tostamp(now)))
     except Exception, e:
-        raise Exception("don't know what to do with period stamp %s: %s"%(stamp, str(e)))
+        raise Exception("don't know what to do with stamp %s: %s"%(stamp, str(e)))
     return tm
 
+def _intfield(var):
+    try:
+        return int(var)
+    except:
+        pass
+    return None
+
+def _timefield(var):
+    return        
+        
 class Query(Collector):
     @classmethod
     def create(cls, qry):
-        fields = qry['fields']
-        shape = qry.get('shape', None)
+        flow = qry.get('flows', None)
+        if flow is None: raise Exception("missing expected 'flow' attribute")
+        fields = flow.get('fields', None)
+        if fields is None: raise Exception("missing expected 'flow.fields' attribute")
+        shape = flow.get('shape', None)
 
-        per = qry.get('time', None)
-        if per is None:
-            return RawQuery(fields, shape)
+        time = qry.get('time', None)
+        if time is None: return RawQuery(fields, shape)
 
         # remove time stamp fields
-        _cleanupfields(fields)
-
-        try:
-            per = int(per)
+        _cleanuptimefields(fields)
+        per = _intfield(time)
+        if per is not None:
             return PeriodicQuery(fields, shape, max(per, 1))
-        except:
-            pass
-        try:
-            iter(per)
-        except TypeError:
-            raise Exception("don't know what to do with `time`")
-        if isinstance(per, basestring):
-            raise Exception("don't know what to do with `time` string")
-        stamp = per[0]
-        if stamp:
-            now = datetime.datetime.utcnow()
-            oldest = stamp2time(stamp, now)
-        else:
-            oldest = None
 
-        return FlowQuery(fields, shape, newest, oldest)
+        mode = time.get('mode', None)
+        if mode is None: raise Exception("missing 'time.mode' attribute")
+        if mode == 'periodic':
+            per = _intfield(time.get('seconds', None))
+            if per is None: raise Exception("missing valid 'time.seconds' for 'time.periodic' mode")
+            return PeriodicQuery(fields, shape, max(per, 1))
+        elif mode == 'collect':
+            oldest = stamp2time(time.get('oldest', None))
+            newest = stamp2time(time.get('newest', None))
+            return FlowQuery(fields, shape, newest, oldest)
+        elif mode == 'range':
+            oldest = stamp2time(time.get('oldest', None))
+            newest = stamp2time(time.get('newest', None))
+            return RangeQuery(fields, shape, newest, oldest)
+
+        raise Exception("don't know what to do with 'time.mode==%s'"%(mode))
 
     def __init__(self, fields, shape):
-        super(self.__class__, self).__init__(fields)
+        super(Query, self).__init__(fields)
         self._shape = self._on_shape(shape)
 
     def is_live(self):
@@ -289,7 +303,7 @@ class Query(Collector):
     
 class LiveQuery(Query):
     def __init__(self, fields, shape):
-        super(self.__class__, self).__init__(fields, shape)
+        super(LiveQuery, self).__init__(fields, shape)
         self._end = None
         self._records = set()
 
@@ -313,7 +327,7 @@ class LiveQuery(Query):
 
 class RawQuery(LiveQuery):
     def __init__(self, fields, shape):
-        super(self.__class__, self).__init__(fields, shape)
+        super(RawQuery, self).__init__(fields, shape)
         
     def collect(self, source, dd):
         if not self._filter(dd): return None
@@ -329,7 +343,8 @@ class PeriodicQuery(LiveQuery):
         Result: counts vs. flows, no time dimension after aggregation.
     """
     def __init__(self, fields, shape, period):
-        super(self.__class__, self).__init__(fields, shape)
+        super(PeriodicQuery, self).__init__(fields, shape)
+        self._period = period
 
     def collect(self, source, dd):
         if not self._filter(dd): return None
@@ -346,7 +361,7 @@ class PeriodicQuery(LiveQuery):
 
 class HistoryQuery(Query):
     def __init__(self, fields, shape, newest, oldest):
-        super(self.__class__, self).__init__(fields, shape)
+        super(HistoryQuery, self).__init__(fields, shape)
         self._newest = newest
         self._oldest = oldest
 
@@ -381,7 +396,7 @@ class FlowQuery(HistoryQuery):
     """
 
     def __init__(self, fields, shape, newest, oldest):
-        super(self.__class__, self).__init__(fields, shape, newest, oldest)
+        super(FlowQuery, self).__init__(fields, shape, newest, oldest)
 
     def _mkcaller(self):
         """ Need to redesign to consider shaper
@@ -449,13 +464,13 @@ class FlowQuery(HistoryQuery):
         res, _, _ = self._reshape(coll.items(), totals=False) 
         return self._mkreply(self._reshape(collection), totals, numbers)
 
-class TemporalQuery(HistoryQuery):
+class RangeQuery(HistoryQuery):
     """ Aggregate historic data over flows.
         Result: counts vs. time steps, no flow dimension after aggregation. 
     """
     def __init__(self, fields, newest, oldest, granules):
         """ need to ignore all 'report' (i.e. '*') fields since it will be aggregated over flows anyways """
-        super(self.__class__, self).__init__(fields, None, newest, oldest)
+        super(RangeQuery, self).__init__(fields, None, newest, oldest)
         self._reps = [] # nullify reportable fields
         self._gradules = granules
 
