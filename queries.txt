@@ -1,0 +1,8 @@
+# Global status
+python -m test.stats -i tcp://localhost:5567 -s
+
+# collect last 10 seconds of history, aggregate by router IP
+python -m test.query -i "tcp://localhost:5567" -f exporterIPv4Address -m max -s bytes -c 10 --oldest 10
+
+# report two exporters stats in last 10 seconds, show them separately ('*' in the list)
+python -m test.query -i "tcp://localhost:5567" -f exporterIPv4Address=198.154.124.14,198.154.124.18,* -m max -s bytes -c 10 --oldest 10

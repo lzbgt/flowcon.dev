@@ -6,7 +6,7 @@ Created on Nov 26, 2013
 
 import argparse, zmq, datetime, pprint
 
-import names, flowcon.connector
+import names, flowcon.connector, flowcon.query
 
 def main():
     parser = argparse.ArgumentParser()
@@ -43,6 +43,8 @@ def main():
                 if idx > 0:
                     nm = fl[:idx]
                     val = fl[idx+1:]
+                    vals = val.split(',')
+                    if len(vals) > 1: val = vals
                     fset = names.namesmap.get(nm, None)
                 else:
                     fset = names.namesmap.get(fl, None)
@@ -119,8 +121,13 @@ class Query(flowcon.connector.Connection):
 
 def fidsmod(fids):
     for v in fids.values():
-        if v == '*':
-            return 'collect'
+        if flowcon.query.isone(v):
+            if v == '*':
+                return 'collect'
+        else:
+            for e in v:
+                if e == '*':
+                    return 'collect'
     return 'range'
                 
 def process(addr, tm, method, sortby, count, hb, fids):

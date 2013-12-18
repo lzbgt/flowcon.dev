@@ -21,6 +21,18 @@ def _cleanuptimefields(fields):
         del fields[Source.endstamp]
 
 
+def isone(fv):
+    try:
+        iter(fv)
+        if isinstance(fv, basestring):
+            return True
+        else:
+            return False
+    except TypeError:
+        pass
+    return True
+
+
 class Collector(object):
     bytesid = 1
     packetsid = 2
@@ -57,15 +69,37 @@ class Collector(object):
         ls = set()
         cs = []
         for fk, fv in fields.items():
-            if fv == '*': 
-                ls.add(int(fk))
+            if isone(fv):
+                if fv == '*': 
+                    ls.add(int(fk))
+                else:
+                    cs.append((fk, self._mkone(fv)))
             else:
-                cs.append((fk, fv))
+                sub = []
+                for v in fv:
+                    if v == '*':
+                        ls.add(int(fk))
+                    else:
+                        sub.append(v)
+                cs.append((fk, self._mkmany(sub)))
+        
         ls = ['%d'%x for x in sorted(ls.difference(self.counters))]
         self._reps = ls  # all fields we need to consider for aggregation 
         #                # (except counters fields) and report, i.e. all `*` fields
         self._chks = cs  # fields to filter flows with 
         #                # If these fields no not match with given flow then flow is discarded
+
+    def _mkone(self, chk):
+        def chkr(val):
+            return val == chk
+        return chkr
+
+    def _mkmany(self, lst):
+        def chkr(val):
+            for v in lst:
+                if val == v: return True
+            return False
+        return chkr
 
 class Source(Collector):
     srcaddress = '130'
@@ -308,8 +342,9 @@ class LiveQuery(Query):
         self._records = set()
 
     def _filter(self, dd):
-        for fk, fv in self._chks:
-            if dd[fk] != fv: return False  # this flow is filtered out
+        for fk, checker in self._chks:
+            if not checker(dd[fk]):
+                return False  # this flow is filtered out
         return True
 
     def addrec(self, rec):
@@ -366,12 +401,12 @@ class HistoryQuery(Query):
         self._oldest = oldest
 
     def _subsource(self, sources):
-        for fk, fv in self._chks:
+        for fk, checker in self._chks:
             if fk == Source.srcaddress:  # query has specific preference for source
                 # find a source this query needs
                 srcs = []
                 for s in sources:
-                    if s.address == fv:
+                    if checker(s.address()):
                         srcs.append(s)
                 sources = srcs
                 break
@@ -379,15 +414,15 @@ class HistoryQuery(Query):
         return sources
     def _sel(self):
         pos = 0
-        checker = []
+        chkr = []
         keyer = []
         for ft in Source.flowtuple:
-            for f, v in self._chks:
-                if f == ft: checker.append((pos, v))
+            for f, checker in self._chks:
+                if f == ft: chkr.append((pos, checker))
             for f in self._reps:
                 if f == ft: keyer.append(pos)            
             pos += 1
-        return checker, keyer
+        return chkr, keyer
 
 class FlowQuery(HistoryQuery):
     """ Aggregate historic data over time.
@@ -408,8 +443,8 @@ class FlowQuery(HistoryQuery):
         if checker and keyer:
             def keycall(ftuple, stamp):
                 # key per flow tuple
-                for p, v in checker: 
-                    if ftuple[p] != v: return None  # filter out this flow
+                for p, chkr in checker: 
+                    if not chkr(ftuple[p]): return None  # filter out this flow
                 return tuple([ftuple[p] for p in keyer])
         elif not checker and keyer:
             def keycall(ftuple, stamp):
@@ -418,8 +453,8 @@ class FlowQuery(HistoryQuery):
         elif checker and not keyer:
             def keycall(ftuple, stamp):
                 # key per flow tuple
-                for p, v in checker: 
-                    if ftuple[p] != v: return None  # filter out this flow
+                for p, chkr in checker: 
+                    if not chkr(ftuple[p]): return None  # filter out this flow
                 return onekey
         else:
             def keycall(ftuple, stamp):
@@ -447,7 +482,7 @@ class FlowQuery(HistoryQuery):
                 coll = {}
                 s.history(coll, self._newest, self._oldest, keycall)
                 
-                res, tot, num = self._reshape(coll.items(), (pos, s.address))
+                res, tot, num = self._reshape(coll.items(), (pos, s.address()))
                 for p in counts: totals[p] += tot[p]
                 numbers += num  # all keys are unique between sources, so combined numbers are correct
                  
@@ -478,8 +513,8 @@ class RangeQuery(HistoryQuery):
         if checker:
             def keycall(ftuple, skey):
                 # key per flow tuple
-                for p, v in checker: 
-                    if ftuple[p] != v: return None  # filter out this flow
+                for p, chkr in checker: 
+                    if not chkr(ftuple[p]): return None  # filter out this flow
                 return skey
         else:
             def keycall(ftuple, skey):
