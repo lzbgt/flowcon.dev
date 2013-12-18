@@ -123,12 +123,12 @@ def fidsmod(fids):
     for v in fids.values():
         if flowcon.query.isone(v):
             if v == '*':
-                return 'collect'
+                return 'flows'
         else:
             for e in v:
                 if e == '*':
-                    return 'collect'
-    return 'range'
+                    return 'flows'
+    return 'time'
                 
 def process(addr, tm, method, sortby, count, hb, fids):
     flows = {'fields':fids}

@@ -3,9 +3,11 @@ Created on Dec 4, 2013
 
 @author: schernikov
 '''
-import dateutil.tz, datetime, dateutil.parser
+import dateutil.tz, datetime, dateutil.parser, re
 
 import logger
+
+ipmaskre = re.compile('(?P<b0>\d{1,3})\.(?P<b1>\d{1,3})\.(?P<b2>\d{1,3})\.(?P<b3>\d{1,3})/(?P<mask>\d{1,2})$')
 
 tzutc = dateutil.tz.tzutc()
 
@@ -32,11 +34,45 @@ def isone(fv):
         pass
     return True
 
+def ipvariations(value):
+    m = ipmaskre.match(value)
+    if not m: return None
+    dd = m.groupdict()
+    mask = int(dd['mask'])
+    if mask <= 0:
+        return []
+    if mask >= 32:
+        return None
+    pref = ''
+    res = []
+    for bn in range(4):
+        b = int(dd['b%d'%bn])
+        if (bn+1)*8 >= mask:    # last bit of this byte includes last important mask bit
+            bits = mask%8
+            msk = (2**bits-1)<<(8-bits) # byte mask
+            if msk == 0:        # exact match for this byte 
+                if pref: pref += '.'
+                pref += '%d'%b
+                if bn < 3: pref += '.'
+                return [pref]
+            bm = b & msk
+            vals = set()
+            for x in range(256):
+                if bm == (x & msk): vals.add(x)
+            if pref: pref += '.'
+            post = '.' if bn < 3 else ''
+            for v in vals:
+                res.append(pref+('%d%s'%(v,post)))
+            break
+        if pref: pref += '.'
+        pref += '%d'%b
+    return res
 
 class Collector(object):
     bytesid = 1
     packetsid = 2
     counters = (bytesid, packetsid)
+    ipfields = ['8', '12', '130']
 
     def __init__(self, fields):
         self._cnts = ['%d'%x for x in self.counters]
@@ -73,14 +109,14 @@ class Collector(object):
                 if fv == '*': 
                     ls.add(int(fk))
                 else:
-                    cs.append((fk, self._mkone(fv)))
+                    cs.append((fk, self._mkone(fk, fv)))
             else:
                 sub = []
                 for v in fv:
                     if v == '*':
                         ls.add(int(fk))
                     else:
-                        sub.append(v)
+                        sub.append(self._mkone(fk, v))
                 cs.append((fk, self._mkmany(sub)))
         
         ls = ['%d'%x for x in sorted(ls.difference(self.counters))]
@@ -89,15 +125,28 @@ class Collector(object):
         self._chks = cs  # fields to filter flows with 
         #                # If these fields no not match with given flow then flow is discarded
 
-    def _mkone(self, chk):
-        def chkr(val):
-            return val == chk
-        return chkr
+    def _mkone(self, fk, value):
+        def chkexact(v):
+            return v == value
+        if fk in self.ipfields:
+            res = ipvariations(value)
+            if res is None:
+                return chkexact
+            if not res:
+                def chkrany(v): return True # any value is good
+                return chkrany
+            def chkmasked(v):
+                for x in res:
+                    if v.startswith(x): return True
+                return False
+            return chkmasked
 
-    def _mkmany(self, lst):
+        return chkexact
+
+    def _mkmany(self, cklist):
         def chkr(val):
-            for v in lst:
-                if val == v: return True
+            for ck in cklist:
+                if ck(val): return True
             return False
         return chkr
 
@@ -251,11 +300,11 @@ class Query(Collector):
             per = _intfield(time.get('seconds', None))
             if per is None: raise Exception("missing valid 'time.seconds' for 'time.periodic' mode")
             return PeriodicQuery(fields, shape, max(per, 1))
-        elif mode == 'collect':
+        elif mode == 'flows':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
             return FlowQuery(fields, shape, newest, oldest)
-        elif mode == 'range':
+        elif mode == 'time':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
             return RangeQuery(fields, newest, oldest)
