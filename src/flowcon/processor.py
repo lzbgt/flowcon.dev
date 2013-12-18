@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, time#, zmq.utils.monitor
+import zmq, datetime, time, pprint
 
 from zmq.eventloop import ioloop
 ioloop.install()
@@ -96,7 +96,8 @@ class FlowProc(connector.Connection):
         if query:
             #TODO pretty ugly design here; connections, queries, sources has to be rewritten
             hb = int(qry.get('heartbeat', self.heartbeat))
-            logger.dump("got query: %s from %s (hb:%ds)"%(query, [addr], hb))
+            logger.dump("got query from %s (hb:%ds):\n%s\n"%([addr], hb, pprint.pformat(query)))
+
             q = self._live_queries.get(req, None)
             if not q:
                 try:
@@ -108,7 +109,7 @@ class FlowProc(connector.Connection):
                     self._live_queries[req] = q
             if not q.is_live():
                 res = q.collect_sources(self._sources.values())
-                self._send(self, addr, res)
+                self._send(addr, res)
                 q = None    # to record it in QRec as `no pending query`
             record = self._addresses.get(addr, None)
             if not record:

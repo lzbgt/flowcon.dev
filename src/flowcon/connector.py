@@ -33,7 +33,7 @@ class Connector(object):
     def __init__(self):
         self._ctx = zmq.Context()
 
-    def _setup(self, sock, addr, con):
+    def _setup(self, sock, addr, con, method):
         self._con = con
         con._sock = sock
         self._sock = sock
@@ -44,19 +44,23 @@ class Connector(object):
         mon = self._mkmon(sock)
         mon_stream = zmqstream.ZMQStream(mon)
         mon_stream.on_recv(self._on_mon)
+
+        getattr(sock, method)(addr)
         
         loop = ioloop.IOLoop.instance()
         loop.start()
 
+    def stop(self):
+        loop = ioloop.IOLoop.instance()
+        loop.stop()
+
     def connect(self, addr, con):
         sock = self._ctx.socket(zmq.DEALER)
-        sock.connect(addr)
-        self._setup(sock, addr, con)
+        self._setup(sock, addr, con, 'connect')
 
     def listen(self, addr, con):
         sock = self._ctx.socket(zmq.ROUTER)
-        sock.bind (addr)
-        self._setup(sock, addr, con)
+        self._setup(sock, addr, con, 'bind')
 
     def subscribe(self, addr, subname, callback):
         sockin = self._ctx.socket(zmq.SUB)
@@ -80,7 +84,8 @@ class Connector(object):
         self._con.on_msg(msg)
 
     def _mkmon(self, sock):
-        return sock.get_monitor_socket(zmq.EVENT_CONNECTED | zmq.EVENT_DISCONNECTED)
+        #return sock.get_monitor_socket(zmq.EVENT_CONNECTED | zmq.EVENT_DISCONNECTED)
+        return sock.get_monitor_socket(zmq.EVENT_ALL)
 
     def _on_mon(self, msg):
         ev = zmq.utils.monitor.parse_monitor_message(msg)

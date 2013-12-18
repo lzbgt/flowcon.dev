@@ -128,7 +128,7 @@ class Source(Collector):
         """
         self._history(collecton, self._seconds, newest, oldest, keycall, timekey)
         
-    def _history(self, collection, group, step, newest, oldest, keycall, timekey):
+    def _history(self, collection, group, newest, oldest, keycall, timekey):
         counts = range(len(self._cnts))
         if newest or oldest:
             if not newest:
@@ -224,7 +224,7 @@ class Query(Collector):
         elif mode == 'range':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
-            return RangeQuery(fields, shape, newest, oldest)
+            return RangeQuery(fields, newest, oldest)
 
         raise Exception("don't know what to do with 'time.mode==%s'"%(mode))
 
@@ -382,11 +382,10 @@ class HistoryQuery(Query):
         checker = []
         keyer = []
         for ft in Source.flowtuple:
-            fv = self._chks.get(ft, None)
-            if fv: checker.append((pos, fv))
-
-            fv = self._reps.get(ft, None)
-            if fv: keyer.append(pos)            
+            for f, v in self._chks:
+                if f == ft: checker.append((pos, v))
+            for f in self._reps:
+                if f == ft: keyer.append(pos)            
             pos += 1
         return checker, keyer
 
@@ -406,7 +405,7 @@ class FlowQuery(HistoryQuery):
         """
         checker, keyer = self._sel()
         onekey = tuple()
-        if checker and keyer: 
+        if checker and keyer:
             def keycall(ftuple, stamp):
                 # key per flow tuple
                 for p, v in checker: 
@@ -440,7 +439,10 @@ class FlowQuery(HistoryQuery):
         counts = range(len(self._cnts))
         try:
             pos = self._reps.index(Source.srcaddress)
-            # source address has to be included into keys  
+        except:
+            pos = None
+        if pos is not None:
+            # source address has to be included into keys
             for s in sources:
                 coll = {}
                 s.history(coll, self._newest, self._oldest, keycall)
@@ -450,29 +452,26 @@ class FlowQuery(HistoryQuery):
                 numbers += num  # all keys are unique between sources, so combined numbers are correct
                  
                 collection.extend(res)
-        except:
-            for s in sources:
-                coll = {}
-                s.history(coll, self._newest, self._oldest, keycall)
-                
-                res, tot, num = self._reshape(coll.items())
-                for p in counts: totals[p] += tot[p]
-                
-                collection.extend(res)
-            numbers = 0  # it's unknown how many unique keys were here
-        
-        res, _, _ = self._reshape(coll.items(), totals=False) 
-        return self._mkreply(self._reshape(collection), totals, numbers)
+            res, _, _ = self._reshape(collection, totals=False)
+            return self._mkreply(res, totals, numbers)
+
+        coll = {}
+        for s in sources:
+            s.history(coll, self._newest, self._oldest, keycall)
+
+        res, tot, num = self._reshape(coll.items()) 
+        return self._mkreply(res, tot, num)
 
 class RangeQuery(HistoryQuery):
     """ Aggregate historic data over flows.
         Result: counts vs. time steps, no flow dimension after aggregation. 
     """
-    def __init__(self, fields, newest, oldest, granules):
+    def __init__(self, fields, newest, oldest):
         """ need to ignore all 'report' (i.e. '*') fields since it will be aggregated over flows anyways """
         super(RangeQuery, self).__init__(fields, None, newest, oldest)
         self._reps = [] # nullify reportable fields
-        self._gradules = granules
+        #TODO implement actual granule detection
+        self._gradules = datetime.time.second
 
     def _mkcaller(self):
         checker, _ = self._sel()
@@ -501,9 +500,10 @@ class RangeQuery(HistoryQuery):
                 return datetime.datetime.combine(s.date(), datetime.time(s.hour))
         else:
             return None
+        return keyer
 
     def collect_sources(self, sources):
-        sources = self.__subsource(sources)
+        sources = self._subsource(sources)
 
         keycall = self._mkcaller()
         
