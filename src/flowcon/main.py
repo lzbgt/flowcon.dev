@@ -6,7 +6,7 @@ Created on Nov 25, 2013
 
 import sys, argparse
 
-import processor, logger
+import processor, flowtools.logger as logger
 
 def main():
     parser = argparse.ArgumentParser()

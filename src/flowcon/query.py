@@ -5,7 +5,7 @@ Created on Dec 4, 2013
 '''
 import dateutil.tz, datetime, dateutil.parser, re
 
-import logger
+import flowtools.logger as logger
 
 ipmaskre = re.compile('(?P<b0>\d{1,3})\.(?P<b1>\d{1,3})\.(?P<b2>\d{1,3})\.(?P<b3>\d{1,3})/(?P<mask>\d{1,2})$')
 

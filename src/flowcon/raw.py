@@ -5,7 +5,7 @@ Created on Dec 5, 2013
 '''
 import datetime, zmq
 
-import logger, connector
+import flowtools.logger as logger, connector
 
 flowtypes = {
          '1':'Incoming flow bytes (src->dst)',
