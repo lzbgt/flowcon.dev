@@ -8,11 +8,19 @@ import numpy as np
 
 class Digs(object):
     """Should be refactored for non-copying fancy indexing with use of numba or numexpr"""
+
+    @classmethod
+    def fromentries(cls, entries):
+        return Digs(entries['first'], entries['mid'], entries['last'])
+    
     def __init__(self, first=None, mid=None, last=None, subset=None):
         self._subset = subset
         self._first = first
+        self._firstbits = self._first.dtype.itemsize*8
         self._mid = mid
+        self._midbits = self._mid.dtype.itemsize*8
         self._last = last
+        self._lastbits = self._last.dtype.itemsize*8
     
     def diffs(self, o):
         "consider stored indexing subset"
@@ -23,34 +31,71 @@ class Digs(object):
         return mismatches.nonzero()[0]
 
     def mask(self, msk):
-        return np.bitwise_and(self._last[self._subset], msk)
+        bts = self._last if self._subset is None else self._last[self._subset]
+        return np.bitwise_and(bts, msk)
 
-    def applybits(self, offset, num, out):
-        "return num bits offset bits from LSB side"
-        np.right_shift(self._last[self._subset], offset, out)
+    def _applyone(self, field, offset, out, num):
+        bts = field if self._subset is None else field[self._subset]
+
+        np.right_shift(bts, offset, out)
         mask = 2**num-1
         np.bitwise_and(out, mask, out)
 
-    @property
-    def keys(self):
-        return self._subset
+    def _applytwo(self, f1, f2, offset, out, num, rem):
+        bts1 = f1 if self._subset is None else f1[self._subset]
+        bts2 = f2 if self._subset is None else f2[self._subset]
+        mask = 2**(num-rem)-1
+        np.bitwise_and(bts2, mask, out)
+        out <<= rem
+        out += np.right_shift(bts1, offset)
+
+    def applybits(self, offset, num, out):
+        "return num bits offset bits from LSB side"
+        if (offset+num) > self._lastbits:
+            if offset >= self._lastbits:
+                offset -= self._lastbits
+                if (offset+num) > self._midbits:
+                    if offset >= self._midbits:
+                        offset -= self._midbits
+                        if (offset+num) > self._firstbits:
+                            if offset >= self._firstbits:
+                                pass # this should never happen; all digest bits are skipped  
+                            else:
+                                # use only remaining available bits
+                                self._applyone(self._first, offset, out, self._firstbits-offset)
+                        else:
+                            self._applyone(self._first, offset, out, num)
+                    else:
+                        self._applytwo(self._mid, self._first, offset, out, num, self._midbits-offset)
+                else:
+                    self._applyone(self._mid, offset, out, num)
+            else:
+                self._applytwo(self._last, self._mid, offset, out, num, self._lastbits-offset)
+        else:
+            self._applyone(self._last, offset, out, num)
+
+    def select(self, vals):
+        return vals[self._subset] if self._subset is not None else vals
     
     def __getitem__(self, key):
         "consider stored indexing subset"
-        if self._subset:
-            subset = self._subset[key]
-        else:
-            subset = np.arange(len(self._last))[key]
+        if key is not None:
+            if self._subset is not None:
+                subset = self._subset[key]
+            else:
+                subset = np.arange(len(self._last))[key]
         return Digs(first=self._first, mid=self._mid, last=self._last, subset=subset)
     
     def __len__(self):
-        return len(self._subset) if self._subset else len(self._last)
+        return len(self._subset) if self._subset is not None else len(self._last)
 
 class HashDict(object):
     def __init__(self):
         self
 
 class HashLookup(object):
+    indextype = np.dtype('i4')
+    
     def __init__(self, ondigs, bits, indarray):
         self._indexes = indarray
         self._getdigs = ondigs
@@ -107,6 +152,7 @@ class HashLookup(object):
         if len(zeros) > 0:      # never seen these entries before
             newindex = onnew(digs[zeros])
             self._indexes[addresses[zeros]] = newindex
+            indices[zeros] = newindex
 
         if len(negatives) > 0:  # it's already collided before; now it is one more collision
             poses = (-1)*indices[negatives]
@@ -134,7 +180,7 @@ class HashCompact(HashLookup):
     chunkbits = 16
     
     def __init__(self, offset, dtype, ondigs):
-        super(HashLookup, self).__init__(ondigs, offset+self.scopebits, None)
+        super(HashCompact, self).__init__(ondigs, offset+self.scopebits, None)
 
         self._offset = offset
         self._dtype = dtype
@@ -251,7 +297,7 @@ class HashCompact(HashLookup):
 class HashSub(HashLookup):
     def __init__(self, bits, parent, copy=None):
         size = 2**bits
-        super(HashLookup, self).__init__(parent._getdigs, bits, np.zeros(size, dtype='i4'))
+        super(HashSub, self).__init__(parent._getdigs, bits, np.zeros(size, dtype=self.indextype))
 
         self._onnew = parent._onnew
         self._mask = size-1
@@ -271,12 +317,12 @@ class HashSub(HashLookup):
         if len(positives) > 0:
             posindices = indices[positives]
             def onposnew(dgs):
-                return posindices[dgs.keys]
+                return dgs.select(posindices)
             self._lookup(self._getdigs(posindices), onposnew)
 
         negindices = self._compact.getindices()
         def onnegnew(dgs):
-            return negindices[dgs.keys]
+            return dgs.select(negindices)
         self._lookup(self._getdigs(negindices), onnegnew)
         
     def _locations(self, digs):
@@ -284,13 +330,13 @@ class HashSub(HashLookup):
 
     def lookup(self, entries):
         "lookup collection of digs and values"
-        digs = Digs(entries['first'], entries['mid'], entries['last'])
+        digs = Digs.fromentries(entries)
         
         def onnew(dgs):
             self._count += len(dgs)
-            return self._onnew(entries[dgs.keys])
+            return self._onnew(dgs.select(entries))
 
-        return self._lookup(self, digs, onnew)
+        return self._lookup(digs, onnew)
         
     def _lookup(self, digs, onnew):
         addresses = self._locations(digs)       # may have non-unique values there
