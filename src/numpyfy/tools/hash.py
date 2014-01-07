@@ -4,14 +4,15 @@ Created on Dec 30, 2013
 @author: schernikov
 '''
 
-import numpy as np
+#import numpy as np
+import npdebug as np
 
 class Digs(object):
     """Should be refactored for non-copying fancy indexing with use of numba or numexpr"""
 
     @classmethod
-    def fromentries(cls, entries):
-        return Digs(entries['first'], entries['mid'], entries['last'])
+    def fromentries(cls, entries, subset=None):
+        return Digs(entries['first'], entries['mid'], entries['last'], subset=subset)
     
     def __init__(self, first=None, mid=None, last=None, subset=None):
         self._subset = subset
@@ -21,35 +22,53 @@ class Digs(object):
         self._midbits = self._mid.dtype.itemsize*8
         self._last = last
         self._lastbits = self._last.dtype.itemsize*8
+        self._rnge = None
     
     def diffs(self, o):
         "consider stored indexing subset"
+        if o._subset is None and self._subset is None:
+            mismatches = o._first != self._first
+            mismatches += o._mid != self._mid
+            mismatches += o._last != self._last
+            return mismatches.nonzero()[0]
+        if o._subset is None:
+            mismatches = o._first != self._first[self._subset]
+            mismatches += o._mid != self._mid[self._subset]
+            mismatches += o._last != self._last[self._subset]
+            return mismatches.nonzero()[0]
+        if self._subset is None:
+            mismatches = o._first[o._subset] != self._first
+            mismatches += o._mid[o._subset] != self._mid
+            mismatches += o._last[o._subset] != self._last
+            return mismatches.nonzero()[0]
+
         mismatches = o._first[o._subset] != self._first[self._subset]
         mismatches += o._mid[o._subset] != self._mid[self._subset]
         mismatches += o._last[o._subset] != self._last[self._subset]
-
         return mismatches.nonzero()[0]
 
     def mask(self, msk):
         bts = self._last if self._subset is None else self._last[self._subset]
         return np.bitwise_and(bts, msk)
 
-    def _applyone(self, field, offset, out, num):
+    def _applyone(self, field, offset, poses, num):
         bts = field if self._subset is None else field[self._subset]
-
-        np.right_shift(bts, offset, out)
+        out = np.right_shift(bts, offset)
         mask = 2**num-1
         np.bitwise_and(out, mask, out)
+        out += np.left_shift(poses, num)        
+        return out
 
-    def _applytwo(self, f1, f2, offset, out, num, rem):
+    def _applytwo(self, f1, f2, offset, poses, num, rem):
         bts1 = f1 if self._subset is None else f1[self._subset]
         bts2 = f2 if self._subset is None else f2[self._subset]
         mask = 2**(num-rem)-1
-        np.bitwise_and(bts2, mask, out)
-        out <<= rem
+        out = np.bitwise_and(bts2, mask)
+        np.left_shift(out, rem, out)
         out += np.right_shift(bts1, offset)
+        return out
 
-    def applybits(self, offset, num, out):
+    def applybits(self, offset, num, poses):
         "return num bits offset bits from LSB side"
         if (offset+num) > self._lastbits:
             if offset >= self._lastbits:
@@ -59,31 +78,31 @@ class Digs(object):
                         offset -= self._midbits
                         if (offset+num) > self._firstbits:
                             if offset >= self._firstbits:
-                                pass # this should never happen; all digest bits are skipped  
-                            else:
-                                # use only remaining available bits
-                                self._applyone(self._first, offset, out, self._firstbits-offset)
-                        else:
-                            self._applyone(self._first, offset, out, num)
-                    else:
-                        self._applytwo(self._mid, self._first, offset, out, num, self._midbits-offset)
-                else:
-                    self._applyone(self._mid, offset, out, num)
-            else:
-                self._applytwo(self._last, self._mid, offset, out, num, self._lastbits-offset)
-        else:
-            self._applyone(self._last, offset, out, num)
+                                return poses # this should never happen; all digest bits are skipped  
+                            # use only remaining available bits
+                            return self._applyone(self._first, offset, poses, self._firstbits-offset)
+                        return self._applyone(self._first, offset, poses, num)
+                    return self._applytwo(self._mid, self._first, offset, poses, num, self._midbits-offset)
+                return self._applyone(self._mid, offset, poses, num)
+            return self._applytwo(self._last, self._mid, offset, poses, num, self._lastbits-offset)
+        return self._applyone(self._last, offset, poses, num)
 
     def select(self, vals):
         return vals[self._subset] if self._subset is not None else vals
     
+    @property
+    def arange(self):
+        if self._rnge is None:
+            self._rnge = np.arange(len(self._subset if self._subset is not None else self._last))
+        return self._rnge
+
     def __getitem__(self, key):
         "consider stored indexing subset"
         if key is not None:
             if self._subset is not None:
                 subset = self._subset[key]
             else:
-                subset = np.arange(len(self._last))[key]
+                subset = key
         return Digs(first=self._first, mid=self._mid, last=self._last, subset=subset)
     
     def __len__(self):
@@ -96,19 +115,23 @@ class HashDict(object):
 class HashLookup(object):
     indextype = np.dtype('i4')
     
-    def __init__(self, ondigs, bits, indarray):
+    def __init__(self, ondigs, bits, indarray, chunkbits):
         self._indexes = indarray
         self._getdigs = ondigs
         self.__comp = None
         self._bits = bits
+        self._chunkbits = chunkbits
 
     @property
     def _compact(self):
         if self.__comp: return self.__comp
-        self.__comp = HashCompact(self._bits, self._indexes.dtype, self._getdigs)
+        self.__comp = HashCompact(self._bits, self._indexes.dtype, self._getdigs, self._chunkbits)
         return self.__comp
 
-    def _anylookup(self, digs, addresses, onnew):
+    def _anylookup(self, digs, addresses, onnew, assume_unique=False):
+        if assume_unique:
+            return self._uniquelookup(digs, addresses, onnew)
+
         uaddrs, uinds = np.unique(addresses, return_index=True)
         if len(uaddrs) >= len(addresses):
             # they are all unique 
@@ -117,9 +140,10 @@ class HashLookup(object):
         indices = np.zeros(len(digs), dtype=self._indexes.dtype)
         indices[uinds], bits = self._uniquelookup(digs[uinds], uaddrs, onnew)
         
-        remains = np.setdiff1d(np.arange(len(digs)), uinds, assume_unique=True)
+        remains = np.setdiff1d(digs.arange, uinds, assume_unique=True)
         while True:
-            uaddrs, uinds = np.unique(addresses[remains], return_index=True)
+            uaddrs, remuinds = np.unique(addresses[remains], return_index=True)
+            uinds = remains[remuinds]
             indices[uinds], bts = self._uniquelookup(digs[uinds], uaddrs, onnew)
             if not bits: bits = bts
             if len(uinds) >= len(remains): break
@@ -137,8 +161,12 @@ class HashLookup(object):
         negatives = (indices < 0).nonzero()[0]
         
         if len(positives) > 0:
-            otherdigs = self._getdigs(indices[positives])
-            badmatches = digs[positives].diffs(otherdigs)
+            if len(indices) != len(positives):
+                otherdigs = self._getdigs(indices[positives])
+                badmatches = digs[positives].diffs(otherdigs)
+            else:
+                otherdigs = self._getdigs(indices)
+                badmatches = digs.diffs(otherdigs)
 
             if len(badmatches) > 0:
                 # those are collisions
@@ -146,17 +174,29 @@ class HashLookup(object):
                 newposes = self._compact.move(otherdigs[bads], indices[bads])
                 self._indexes[addresses[bads]] = (-1)*newposes
                 # handle collided entries collision
-                indices[bads] = self._compact.lookup(newposes, digs[bads], onnew)
+                if len(indices) != len(bads):
+                    indices[bads] = self._compact.lookup(newposes, digs[bads], onnew)
+                else:
+                    indices[:] = self._compact.lookup(newposes, digs[bads], onnew)
                 if len(self._compact) >= self._upper: bits = self._bits
 
         if len(zeros) > 0:      # never seen these entries before
-            newindex = onnew(digs[zeros])
-            self._indexes[addresses[zeros]] = newindex
-            indices[zeros] = newindex
+            if len(indices) != len(zeros):
+                newindex = onnew(digs[zeros])
+                self._indexes[addresses[zeros]] = newindex
+                indices[zeros] = newindex
+            else:
+                newindex = onnew(digs)
+                self._indexes[addresses] = newindex
+                indices[:] = newindex
 
         if len(negatives) > 0:  # it's already collided before; now it is one more collision
-            poses = (-1)*indices[negatives]
-            indices[negatives] = self._compact.lookup(poses, digs[negatives], onnew)
+            if len(indices) != len(negatives):
+                poses = (-1)*indices[negatives]
+                indices[negatives] = self._compact.lookup(poses, digs[negatives], onnew)
+            else:
+                poses = (-1)*indices
+                indices[:] = self._compact.lookup(poses, digs, onnew)
 
         return indices, bits
     
@@ -177,10 +217,9 @@ class HashLookup(object):
 class HashCompact(HashLookup):
     growthrate = 2.0
     scopebits = 2
-    chunkbits = 16
     
-    def __init__(self, offset, dtype, ondigs):
-        super(HashCompact, self).__init__(ondigs, offset+self.scopebits, None)
+    def __init__(self, offset, dtype, ondigs, chunkbits):
+        super(HashCompact, self).__init__(ondigs, offset+self.scopebits, None, chunkbits)
 
         self._offset = offset
         self._dtype = dtype
@@ -207,7 +246,7 @@ class HashCompact(HashLookup):
         return poses
     
     def _growsizes(self, init):
-        chunksize = 2**self.chunkbits
+        chunksize = 2**self._chunkbits
         # grow with growthrate and roundup to chunksize        
         size = int(((init*self.growthrate)+chunksize-1)//chunksize)*chunksize
         return size, size >> self.scopebits
@@ -219,17 +258,16 @@ class HashCompact(HashLookup):
         
         self._indexes = np.zeros(size, dtype=self._dtype)
         self._positions = np.zeros(posnum, dtype=self._dtype)
+        poscount += 1 # position 0 is invalid
         self._first = poscount
         self._initposes(poscount)
        
-        poses = np.arange(0, poscount, dtype=self._dtype)
+        poses = np.arange(1, poscount, dtype=self._dtype)
         self._assign(poses, digs, indices)
         return poses
 
     def _mkaddresses(self, poses, digs):
-        addresses = np.left_shift(poses, self.scopebits)
-        digs.applybits(self._offset, self.scopebits, addresses)
-        return addresses
+        return digs.applybits(self._offset, self.scopebits, poses)
 
     def _initposes(self, start):
         posnum = self._positions.size
@@ -267,7 +305,8 @@ class HashCompact(HashLookup):
         def oncompnew(dgs):
             self._count += len(dgs)
             return onnew(dgs)
-        return self._anylookup(digs, addresses, oncompnew)
+        inds, _ = self._anylookup(digs, addresses, oncompnew)
+        return inds
     
     def getindices(self):
         "pull all indices"
@@ -297,7 +336,7 @@ class HashCompact(HashLookup):
 class HashSub(HashLookup):
     def __init__(self, bits, parent, copy=None):
         size = 2**bits
-        super(HashSub, self).__init__(parent._getdigs, bits, np.zeros(size, dtype=self.indextype))
+        super(HashSub, self).__init__(parent._getdigs, bits, np.zeros(size, dtype=self.indextype), bits)
 
         self._onnew = parent._onnew
         self._mask = size-1
@@ -371,10 +410,12 @@ class HashMap(object):
     def _grow(self, bits):
         """grow hash size twice (by one bit), plug new value there and return new index"""
         if bits >= self.maxbits: return    # can not grow any more
+        print "growing to %d bit"%(bits+1)
         self._sub = HashSub(bits+1, self, copy=self._sub)   # grow one bit - make it twice as big
     
     def _shrink(self, bits):
         if bits <= self.minbits: return
+        print "shrinking to %d bit"%(bits-1)
         self._sub = HashSub(bits-1, self, copy=self._sub)   # shrink one bit - make it twice as small
     
     def remove(self, digs):
@@ -382,4 +423,6 @@ class HashMap(object):
         if bits: self._shrink(bits)
 
     def report(self):
-        self
+        sub = self._sub
+        return {"bit":sub._bits, 'size':sub._indexes.size, 'count':len(sub),
+                'comp':{'count':len(sub._compact)}}
