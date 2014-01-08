@@ -97,8 +97,9 @@ class FlowProc(connector.Connection):
         try:
             qry = zmq.utils.jsonapi.loads(req)
         except Exception, e:
+            logger.dump("invalid query: %s"%(req))
             err = {'error':str(e), 'badmsg':req}
-            self.send_multipart([addr, zmq.utils.jsonapi.dumps(err)])
+            self._send(addr, err)
             return
         query = qry.get('query', None)
         if query:
