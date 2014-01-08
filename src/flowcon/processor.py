@@ -92,7 +92,12 @@ class FlowProc(connector.Connection):
             record.stamp()
             return
 
-        qry = zmq.utils.jsonapi.loads(req)
+        try:
+            qry = zmq.utils.jsonapi.loads(req)
+        except Exception, e:
+            err = {'error':str(e), 'badmsg':req}
+            self.send_multipart([addr, zmq.utils.jsonapi.dumps(err)])
+            return
         query = qry.get('query', None)
         if query:
             #TODO pretty ugly design here; connections, queries, sources has to be rewritten
