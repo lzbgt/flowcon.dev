@@ -354,7 +354,7 @@ class Query(Collector):
                     tots[p] += v[p]
         num = len(res)
 
-        if not self._shape: return res
+        if not self._shape: return res, tots, num
         reverse, pos, count = self._shape
         srtd = sorted(res, key=lambda l: l[1][pos], reverse=reverse)
         if count > 0: srtd = srtd[:count]

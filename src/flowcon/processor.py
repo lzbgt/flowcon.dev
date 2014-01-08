@@ -46,10 +46,12 @@ class FlowProc(connector.Connection):
         self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
                     
     def on_flow(self, msg):
-        #print msg
         dd = zmq.utils.jsonapi.loads(msg[1])
         
-        addr = dd[querymod.Source.srcaddress]
+        addr = dd.get(querymod.Source.srcaddress, None)
+        if addr is None:
+            logger.dump("bad flow: no source: %s "%(msg[1]))
+            return
         source = self._sources.get(addr, None)
         if source is None:
             source = querymod.Source(addr)

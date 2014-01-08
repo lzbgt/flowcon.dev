@@ -1,0 +1,21 @@
+./nprobe -n none -3 2058 -P ./dump/
+sudo tcpdump -i eth0 -n udp
+sudo tcpreplay --intf1=eth0 /tmp/raw.pcap
+
+rm -rf ./dump/*
+./nprobe -n none -3 2058 --zmq "tcp://10.1.31.81:5556"
+./nprobe -n "10.1.32.196:5556" -3 2058 -V 10
+./nprobe -n none -3 2058 --zmq "tcp://10.1.31.81:5556" -V 10 -T "%IPV4_SRC_ADDR %IPV4_DST_ADDR %IPV4_NEXT_HOP %INPUT_SNMP %OUTPUT_SNMP %IN_PKTS %IN_BYTES %FIRST_SWITCHED %LAST_SWITCHED %L4_SRC_PORT %L4_DST_PORT %TCP_FLAGS %PROTOCOL %SRC_TOS %SRC_AS %DST_AS %IPV4_SRC_MASK %IPV4_DST_MASK %EXPORTER_IPV4_ADDRESS"
+
+# edit config
+sudo emacs /etc/sysctl.conf
+   net.ipv4.ip_forward=1
+
+# update control
+sudo sysctl -p
+
+# should be 1
+sudo cat /proc/sys/net/ipv4/ip_forward
+
+# update nat table
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
