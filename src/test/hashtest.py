@@ -11,6 +11,7 @@ import numpyfy.tools.hash as hashmap
 dt = np.dtype([('first','u8'),('mid','u4'),('last','u8'),('field1','u4'),('field2','u4')])
 
 def main():
+    #hashmap.enabledebug()
     #t1()
     #t2()
     #t3()
@@ -19,9 +20,12 @@ def main():
     #t6()
     #t7()
     #t8()
-    t9()
+    #t9()
+    #t10()
+    t11()
     
 def t1():
+    "check basic functionality"
     entries = [(0, 0, 1, 1,2),
                (0, 0, 2, 3,4),
                (0, 0, 3, 5,6)]
@@ -30,6 +34,7 @@ def t1():
     tes_all_new(entries, indices)
     
 def t2():
+    "check full range with unique addresses"
     size = 256
     ents = np.zeros((size, 5))
     ents[:, 2] = range(size)
@@ -42,6 +47,7 @@ def t2():
     tes_all_new(entries, indices)
     
 def t3():
+    "check random addresses"
     size = 1000
     rng = 256
     nums = np.unique(np.random.randint(rng, size=size))
@@ -58,6 +64,7 @@ def t3():
     tes_all_new(entries, indices)
 
 def t4():
+    "check conflicting addresses (with first)"
     entries = [(0, 0, 1, 1,2),
                (0, 0, 2, 3,4),
                (0, 0, 257, 5,6)]    # same as #1
@@ -66,14 +73,29 @@ def t4():
     tes_all_new(entries, indices)
 
 def t5():
+    "check conflicting addresses (with second)"
     entries = [(0, 0, 1, 1,2),
                (0, 0, 2, 3,4),
                (0, 0, 258, 5,6)]    # same as # 2
     indices = [10,11,12]
 
     tes_all_new(entries, indices)
+
+def t6():
+    "check conflicting addresses (with second)"
+    entries = [(0, 0, 1, 1,2),
+               (0, 0, 2, 3,4),
+               (0, 0, 258, 5,6)]    # same as # 2
+    indices = [10,11,12]
+
+    ents = np.array(entries, dtype=dt)
+    hm = _tes_all_new(ents, indices)
+    newindices = hm.lookup(ents)
+
+    validate(indices, newindices)
     
 def t7():
+    "check repeating queries"
     entries = [(0, 0, 1, 1,2),
                (0, 0, 2, 3,4),
                (0, 0, 258, 5,6)]    # same as # 2
@@ -89,19 +111,8 @@ def t7():
 
     validate([11,12,10], newindices)
     
-def t6():
-    entries = [(0, 0, 1, 1,2),
-               (0, 0, 2, 3,4),
-               (0, 0, 258, 5,6)]    # same as # 2
-    indices = [10,11,12]
-
-    ents = np.array(entries, dtype=dt)
-    hm = _tes_all_new(ents, indices)
-    newindices = hm.lookup(ents)
-
-    validate(indices, newindices)
-    
 def t8():
+    "check non-unique input"
     entries = [(0, 0, 1, 1,2),
                (0, 0, 2, 3,4),
                (0, 0, 1, 5,6)]
@@ -110,6 +121,7 @@ def t8():
     tes_all_new(entries, indices)
     
 def t9():
+    "check growth"
     size = 256
     newsize = 32
     sz = size + newsize
@@ -122,15 +134,80 @@ def t9():
 
     hm = _setup_new(ents, indices)
     
+    print "============================"
     newindices = hm.lookup(ents[:size])
     validate(indices[:size], newindices)
+    rep = hm.report()
+    assert rep['bits'] == 8
+    print rep
     print "============================"
     newindices = hm.lookup(ents[size:])
-
-    print "============================"
-    print hm.report()
-
     validate(indices[size:], newindices)
+    rep = hm.report()
+    assert rep['bits'] == 9
+    print rep
+    print "============================"
+    newindices = hm.lookup(ents)
+    validate(indices, newindices)
+    rep = hm.report()
+    assert rep['count'] == len(ents)
+    print rep
+    
+def t10():
+    "check remove"
+    sz = 256
+    rm = 5
+    ents = np.zeros(sz, dtype=dt)
+    rng = np.arange(sz)
+    ents['last'] = rng+1
+    ents['field1'] = np.random.randint(sz, size=sz)
+    ents['field2'] = np.random.randint(sz, size=sz)
+    indices = np.arange(sz)+10
+    
+    hm = _setup_new(ents, indices)
+    
+    newindices = hm.lookup(ents)
+    validate(indices, newindices)
+    rep = hm.report()
+    assert rep['count'] == sz
+    rems = np.array(np.random.random_sample(rm)*sz, dtype=int)
+    hm.remove(ents[rems])
+    rep = hm.report()
+    assert rep['count'] == (sz-rm)
+    remains = np.setdiff1d(rng, rems, assume_unique=True)
+    newindices = hm.lookup(ents[remains])
+    rep = hm.report()
+    validate(indices[remains], newindices)
+    assert rep['count'] == (sz-rm)
+    print rep
+    
+def t11():
+    "check shrink"
+    sz = 300
+    rm = 200
+    ents = np.zeros(sz, dtype=dt)
+    rng = np.arange(sz)
+    ents['last'] = rng+1
+    ents['field1'] = np.random.randint(sz, size=sz)
+    ents['field2'] = np.random.randint(sz, size=sz)
+    indices = np.arange(sz)+10
+    
+    hm = _setup_new(ents, indices)
+    
+    newindices = hm.lookup(ents)
+    validate(indices, newindices)
+    rep = hm.report()
+    assert rep['count'] == sz
+    rems = np.array(np.random.random_sample(rm)*sz, dtype=int)
+    hm.remove(ents[rems])
+    rep = hm.report()
+    assert rep['count'] == (sz-rm)
+    remains = np.setdiff1d(rng, rems, assume_unique=True)
+    newindices = hm.lookup(ents[remains])
+    rep = hm.report()
+    validate(indices[remains], newindices)
+    assert rep['count'] == (sz-rm)
+    print rep
     
 # =======================================================================
     
@@ -165,6 +242,7 @@ def _setup_new(entries, indices):
         idxs = []
         for e in ents:
             idxs.append(emap[tuple(e)])
+        print "+++",len(idxs)
         return np.array(idxs, dtype=hashmap.HashLookup.indextype)
 
     return hashmap.HashMap(getdigs, onnewindex)

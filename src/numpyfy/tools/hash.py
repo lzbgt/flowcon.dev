@@ -4,15 +4,14 @@ Created on Dec 30, 2013
 @author: schernikov
 '''
 
-#import numpy as np
-import npdebug as np
+import numpy as np
 
 class Digs(object):
     """Should be refactored for non-copying fancy indexing with use of numba or numexpr"""
 
     @classmethod
     def fromentries(cls, entries, subset=None):
-        return Digs(entries['first'], entries['mid'], entries['last'], subset=subset)
+        return cls(entries['first'], entries['mid'], entries['last'], subset=subset)
     
     def __init__(self, first=None, mid=None, last=None, subset=None):
         self._subset = subset
@@ -103,10 +102,38 @@ class Digs(object):
                 subset = self._subset[key]
             else:
                 subset = key
-        return Digs(first=self._first, mid=self._mid, last=self._last, subset=subset)
+        else:
+            subset = None
+        return self.__class__(first=self._first, mid=self._mid, last=self._last, subset=subset)
     
     def __len__(self):
         return len(self._subset) if self._subset is not None else len(self._last)
+
+class KeyedDigs(Digs):
+    def __init__(self, *args, **kargs):
+        if len(args) > 0:
+            parent = args[0]
+            super(KeyedDigs, self).__init__(first=parent._first, 
+                                            mid=parent._mid, 
+                                            last=parent._last, 
+                                            subset=parent._subset)
+        else:
+            super(KeyedDigs, self).__init__(**kargs)
+        self._key = None
+
+    def __getitem__(self, key):
+        newdigs = super(KeyedDigs, self).__getitem__(key)
+        if self._key is None:
+            newdigs._key = key
+        else:
+            if key is None:
+                newdigs._key = self._key
+            else:
+                newdigs._key = self._key[key]
+        return newdigs
+    
+    def keys(self):
+        return self._key
 
 class HashDict(object):
     def __init__(self):
@@ -312,7 +339,7 @@ class HashCompact(HashLookup):
         "pull all indices"
         results = np.zeros(self._count, dtype=self._dtype)
         indices = self._indexes
-        if indices:
+        if indices is not None:
             positives = (indices > 0).nonzero()[0]
             posnum = len(positives)
             if posnum > 0:
@@ -348,6 +375,13 @@ class HashSub(HashLookup):
     def __len__(self):
         return self._count
 
+    def _copyinds(self, inds):
+        digs = KeyedDigs(self._getdigs(inds))
+        def onnew(dgs):
+            keys = dgs.keys()
+            return inds[keys] if keys is not None else inds
+        self._lookup(digs, onnew)
+            
     def _copy(self, other):
         indices = other._indexes
         positives = (indices > 0).nonzero()[0]
@@ -355,15 +389,12 @@ class HashSub(HashLookup):
 
         if len(positives) > 0:
             posindices = indices[positives]
-            def onposnew(dgs):
-                return dgs.select(posindices)
-            self._lookup(self._getdigs(posindices), onposnew)
+            self._copyinds(posindices)
 
-        negindices = self._compact.getindices()
-        def onnegnew(dgs):
-            return dgs.select(negindices)
-        self._lookup(self._getdigs(negindices), onnegnew)
-        
+        negindices = other._compact.getindices()
+        if len(negindices) > 0:
+            self._copyinds(negindices)
+
     def _locations(self, digs):
         return digs.mask(self._mask)
 
@@ -411,18 +442,28 @@ class HashMap(object):
         """grow hash size twice (by one bit), plug new value there and return new index"""
         if bits >= self.maxbits: return    # can not grow any more
         print "growing to %d bit"%(bits+1)
-        self._sub = HashSub(bits+1, self, copy=self._sub)   # grow one bit - make it twice as big
+        oldsub = self._sub
+        self._sub = HashSub(bits+1, self, copy=oldsub)   # grow one bit - make it twice as big
+        del oldsub
     
     def _shrink(self, bits):
         if bits <= self.minbits: return
         print "shrinking to %d bit"%(bits-1)
-        self._sub = HashSub(bits-1, self, copy=self._sub)   # shrink one bit - make it twice as small
+        oldsub = self._sub
+        self._sub = HashSub(bits-1, self, copy=oldsub)   # shrink one bit - make it twice as small
+        del oldsub
     
-    def remove(self, digs):
+    def remove(self, entries):
+        digs = Digs.fromentries(entries)
         bits = self._sub.remove(digs)
         if bits: self._shrink(bits)
 
     def report(self):
         sub = self._sub
-        return {"bit":sub._bits, 'size':sub._indexes.size, 'count':len(sub),
+        return {"bits":sub._bits, 'size':sub._indexes.size, 'count':len(sub),
                 'comp':{'count':len(sub._compact)}}
+
+def enabledebug():
+    import npdebug
+    global np
+    np = npdebug

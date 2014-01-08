@@ -9,8 +9,8 @@ import zmq, datetime, time, pprint
 from zmq.eventloop import ioloop
 ioloop.install()
 
-import connector, flowtools.logger as logger#, query as querymod
-import numpyfy.source as querymod
+import connector, flowtools.logger as logger, query as querymod
+#import numpyfy.source as querymod
 
 class FlowProc(connector.Connection):
     def __init__(self):
