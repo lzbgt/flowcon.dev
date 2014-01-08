@@ -46,10 +46,12 @@ class FlowProc(connector.Connection):
         self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
                     
     def on_flow(self, msg):
-        #print msg
         dd = zmq.utils.jsonapi.loads(msg[1])
         
-        addr = dd[querymod.Source.srcaddress]
+        addr = dd.get(querymod.Source.srcaddress, None)
+        if addr is None:
+            logger.dump("bad flow: no source: %s "%(msg[1]))
+            return
         source = self._sources.get(addr, None)
         if source is None:
             source = querymod.Source(addr)
@@ -92,7 +94,13 @@ class FlowProc(connector.Connection):
             record.stamp()
             return
 
-        qry = zmq.utils.jsonapi.loads(req)
+        try:
+            qry = zmq.utils.jsonapi.loads(req)
+        except Exception, e:
+            logger.dump("invalid query: %s"%(req))
+            err = {'error':str(e), 'badmsg':req}
+            self._send(addr, err)
+            return
         query = qry.get('query', None)
         if query:
             #TODO pretty ugly design here; connections, queries, sources has to be rewritten
