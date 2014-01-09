@@ -48,7 +48,7 @@ class FlowProc(connector.Connection):
     def on_flow(self, msg):
         dd = zmq.utils.jsonapi.loads(msg[1])
         
-        addr = dd.get(querymod.Source.srcaddress, None)
+        addr = dd.get(querymod.Source.srcaddress.id, None)
         if addr is None:
             logger.dump("bad flow: no source: %s "%(msg[1]))
             return
