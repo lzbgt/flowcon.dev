@@ -88,13 +88,15 @@ class Source(object):
         if not fset: return
         self._fset = flows.FlowSet(fset.name, fset.size, fset.ftypes)
         fset # send it to history
-        print "collected %d flows"%(len(fset))
+        #print "collected %d flows"%(len(fset))
         self._attrs.add(*fset.attrs())
         self._flows.add(*fset.flows())
         
     def stats(self):
-        iprep = self._ipset.report()
-        return {'ip':iprep, 'addr':self._addr}
+        "return vital source stats"
+#        iprep = self._ipset.report()
+#        return {'ip':iprep, 'addr':self._addr}
+        return {'name':self.address(), 'flows':self._flows.report(), 'attributes':self._attrs.report()}
         
     def history(self, collecton, newest, oldest, keycall, timekey=lambda k: k):
         self

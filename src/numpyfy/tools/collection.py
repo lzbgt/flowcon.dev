@@ -17,6 +17,9 @@ class Collector(object):
         self._a = np.zeros(startsize, dtype=types.maintype)
         self._view = self._a.view(dtype=types.viewtype)
         
+    def __len__(self):
+        return self._pos-1
+        
     def add(self, digs, ents):
         "return indices for provided digs and ents"
         indices = self._map.lookup(digs, ents)
@@ -40,3 +43,7 @@ class Collector(object):
         self._view[pos:end] = entries
         self._pos = end
         return np.arange(pos, end, dtype=self._map.dtype)
+
+    def report(self):
+        return {'count':len(self), 'size':self._a.size,'map':self._map.report()}
+

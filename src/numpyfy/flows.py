@@ -62,9 +62,9 @@ class Flow(object):
     def done(self, bcnt, pcnt):
         sha = hashlib.sha1()
         sha.update(self._dig[0])
-        self._dig[2] = sha.digest()
+        self._dig[1] = sha.digest()
         sha = hashlib.sha1()
-        sha.update(self._dig[1])
+        sha.update(self._dig[2])
         self._dig[3] = sha.digest()
         self._dig[4] = bcnt
         self._dig[5] = pcnt

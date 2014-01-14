@@ -197,10 +197,19 @@ class HashLookup(object):
 
             if len(badmatches) > 0:
                 # those are collisions
-                bads = positives[badmatches]
-                newposes = self._compact.move(otherdigs[bads], indices[bads])
-                self._indexes[addresses[bads]] = (-1)*newposes
-                # handle collided entries collision
+                if len(positives) != len(badmatches):
+                    bads = positives[badmatches]
+                    newposes = self._compact.move(otherdigs[badmatches], indices[bads])
+                    self._indexes[addresses[bads]] = (-1)*newposes
+                else:
+                    bads = positives
+                    if len(indices) != len(positives):
+                        newposes = self._compact.move(otherdigs, indices[bads])
+                        self._indexes[addresses[bads]] = (-1)*newposes
+                    else:
+                        newposes = self._compact.move(otherdigs, indices)
+                        self._indexes[addresses] = (-1)*newposes
+                # handle collided entries
                 if len(indices) != len(bads):
                     indices[bads] = self._compact.lookup(newposes, digs[bads], onnew)
                 else:
@@ -268,7 +277,7 @@ class HashCompact(HashLookup):
         "one dig - one new position"
         self._count += len(digs)
         # first initialization
-        if not self._indexes: return self._setup(digs, indices)
+        if self._indexes is None: return self._setup(digs, indices)
 
         poses = self._findposes(len(digs))
         self._assign(poses, digs, indices)
@@ -351,7 +360,7 @@ class HashCompact(HashLookup):
             posnum = 0
 
         if self._count > posnum:
-            results[posnum:] = self._compact.getinidices()
+            results[posnum:] = self._compact.getindices()
 
         return results
         
@@ -450,7 +459,7 @@ class HashMap(object):
     def _grow(self, bits):
         """grow hash size twice (by one bit), plug new value there and return new index"""
         if bits >= self.maxbits: return    # can not grow any more
-        print "growing to %d bit"%(bits+1)
+        #print "growing to %d bit"%(bits+1)
         oldsub = self._sub
         self._sub = HashSub(bits+1, self, copy=oldsub)   # grow one bit - make it twice as big
         del oldsub
