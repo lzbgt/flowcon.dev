@@ -205,7 +205,7 @@ class HashLookup(object):
                     indices[bads] = self._compact.lookup(newposes, digs[bads], onnew)
                 else:
                     indices[:] = self._compact.lookup(newposes, digs[bads], onnew)
-                if len(self._compact) >= self._upper: bits = self._bits
+                bits = self._isbig()
 
         if len(zeros) > 0:      # never seen these entries before
             if len(indices) != len(zeros):
@@ -260,6 +260,9 @@ class HashCompact(HashLookup):
     def __len__(self):
         "number of active positions in this compact"
         return self._count
+    
+    def _isbig(self):
+        return None
     
     def move(self, digs, indices):
         "one dig - one new position"
@@ -375,6 +378,9 @@ class HashSub(HashLookup):
     def __len__(self):
         return self._count
 
+    def _isbig(self):
+        return self._bits if len(self._compact) >= self._upper else None
+
     def _copyinds(self, inds):
         digs = KeyedDigs(self._getdigs(inds))
         def onnew(dgs):
@@ -398,9 +404,8 @@ class HashSub(HashLookup):
     def _locations(self, digs):
         return digs.mask(self._mask)
 
-    def lookup(self, entries):
+    def lookup(self, digs, entries):
         "lookup collection of digs and values"
-        digs = Digs.fromentries(entries)
         
         def onnew(dgs):
             self._count += len(dgs)
@@ -432,9 +437,13 @@ class HashMap(object):
         self._onnew = onnewindex
 
         self._sub = HashSub(startbits, self)
-
-    def lookup(self, entries):
-        indices, bits = self._sub.lookup(entries)
+        
+    @property
+    def dtype(self):
+        return self._sub.indextype
+    
+    def lookup(self, digs, entries):
+        indices, bits = self._sub.lookup(digs, entries)
         if bits: self._grow(bits)
         return indices
 

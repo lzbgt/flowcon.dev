@@ -4,40 +4,40 @@ Created on Dec 18, 2013
 @author: schernikov
 '''
 #import addresses
-import flows
+import flows, numpyfy.tools.collection as collecttool
 
 class Source(object):
     # counter fields
-    bytestp = flows.Type('bytes', '1', 4)
-    packetstp = flows.Type('packets', '2', 4)
+    bytestp = flows.IntType('bytes', '1', 4)
+    packetstp = flows.IntType('packets', '2', 4)
     
     # flow fields
-    protocol = flows.Type('protocol', '4', 1)
-    srcaddr = flows.Type('srcaddr', '8', 4)
-    srcport = flows.Type('srcport', '7', 2)
-    dstport = flows.Type('dstport', '11', 2)
-    dstaddr = flows.Type('dstaddr', '12', 4)
+    protocol = flows.IntType('protocol', '4', 1)
+    srcaddr = flows.IPType('srcaddr', '8', 4)
+    srcport = flows.IntType('srcport', '7', 2)
+    dstport = flows.IntType('dstport', '11', 2)
+    dstaddr = flows.IPType('dstaddr', '12', 4)
 
     # special fields
-    endstamp = flows.Type('endstamp', '21', 0)
-    startstamp = flows.Type('startstamp', '22', 0)
-    srcaddress = flows.Type('exportaddr', '130', 4)
+    endstamp = flows.TimeType('endstamp', '21', 0)
+    startstamp = flows.TimeType('startstamp', '22', 0)
+    srcaddress = flows.IPType('exportaddr', '130', 4)
 
     # attribute fields    
-    nexthop = flows.Type('nexthop', '15', 4)
-    ingressport = flows.Type('ingressport', '10', 2)
-    egressport = flows.Type('egressport', '14', 2)
-    tcpflags = flows.Type('tcpflags', '6', 4)
-    tosbyte = flows.Type('tos', '5', 1)
-    srcas = flows.Type('srcas', '16', 4)
-    dstas = flows.Type('dstas', '17', 4)
-    srcmask = flows.Type('srcmask', '9', 4)
-    dstmask = flows.Type('dstmask', '13', 4)
+    nexthop = flows.IPType('nexthop', '15', 4)
+    ingressport = flows.IntType('ingressport', '10', 2)
+    egressport = flows.IntType('egressport', '14', 2)
+    tcpflags = flows.IntType('tcpflags', '6', 4)
+    tosbyte = flows.IntType('tos', '5', 1)
+    srcas = flows.IntType('srcas', '16', 4)
+    dstas = flows.IntType('dstas', '17', 4)
+    srcmask = flows.IntType('srcmask', '9', 1)
+    dstmask = flows.IntType('dstmask', '13', 1)
 
     flowtuple = (protocol, srcport, srcaddr, dstport, dstaddr)
     specialtuple = (bytestp, packetstp, srcaddress, startstamp, endstamp)
     
-    startsize = 256
+    startsize = 16
 
     def __init__(self, addr):
         self._addr = addr
@@ -46,12 +46,9 @@ class Source(object):
         self._attrids = None
         #self._ipset = addresses.IPCollection()
         self._fset = None
-
-    def fields(self):
-        return self._fields
-    
-    def address(self):
-        return self._addr
+        self._seconds = []
+        self._attrs = None
+        self._flows = None
 
     def _update_fields(self, dd):
         fields = set(dd.keys())
@@ -63,9 +60,11 @@ class Source(object):
         self._attrids = sorted(attrsids)
         attrs = [flows.Type.all[aid] for aid in self._attrids]
 
-        flows.FlowSet.setup(self.flowtuple, attrs)
+        types = flows.FlowTypes(self.flowtuple, attrs)
         
-        self._fset = flows.FlowSet(self.startsize if self._fset is None else self._fset.size)
+        self._fset = flows.FlowSet(self.address(), self.startsize if self._fset is None else self._fset.size, types)
+        self._attrs = collecttool.Collector('attributes', types.atypes)
+        self._flows = collecttool.Collector('flows', types.ftypes)
 
     def account(self, dd):
         if self._fields is None: self._update_fields(dd)
@@ -77,7 +76,7 @@ class Source(object):
         for aid in self._attrids:
             flow.add(dd[aid])
 
-        flow.done(dd[self.bytestp.id], dd[self.packettp.sid])
+        flow.done(dd[self.bytestp.id], dd[self.packetstp.id])
 #        expref = self._ipset.add(dd[self.srcaddress.id])
 #        srcref = self._ipset.add(dd[self.srcaddr.id])
 #        dstref = self._ipset.add(dd[self.dstaddr.id])
@@ -85,9 +84,13 @@ class Source(object):
 #        expref, srcref, dstref
         
     def on_time(self, now):
-        fset = flows.FlowSet(self.startsize)
-        self._fset = flows.FlowSet(fset.size)
+        fset = self._fset
+        if not fset: return
+        self._fset = flows.FlowSet(fset.name, fset.size, fset.ftypes)
         fset # send it to history
+        print "collected %d flows"%(len(fset))
+        self._attrs.add(*fset.attrs())
+        self._flows.add(*fset.flows())
         
     def stats(self):
         iprep = self._ipset.report()
@@ -95,6 +98,12 @@ class Source(object):
         
     def history(self, collecton, newest, oldest, keycall, timekey=lambda k: k):
         self
+
+    def fields(self):
+        return self._fields
+    
+    def address(self):
+        return self._addr
         
 class Query(object):
     def create(self):

@@ -90,7 +90,7 @@ def t6():
 
     ents = np.array(entries, dtype=dt)
     hm = _tes_all_new(ents, indices)
-    newindices = hm.lookup(ents)
+    newindices = lookup(hm, ents)
 
     validate(indices, newindices)
     
@@ -107,7 +107,7 @@ def t7():
                (0, 0, 258, 5,6),
                (0, 0, 1, 1,2),]
     ents = np.array(entries, dtype=dt)
-    newindices = hm.lookup(ents)
+    newindices = lookup(hm, ents)
 
     validate([11,12,10], newindices)
     
@@ -135,19 +135,19 @@ def t9():
     hm = _setup_new(ents, indices)
     
     print "============================"
-    newindices = hm.lookup(ents[:size])
+    newindices = lookup(hm, ents[:size])
     validate(indices[:size], newindices)
     rep = hm.report()
     assert rep['bits'] == 8
     print rep
     print "============================"
-    newindices = hm.lookup(ents[size:])
+    newindices = lookup(hm, ents[size:])
     validate(indices[size:], newindices)
     rep = hm.report()
     assert rep['bits'] == 9
     print rep
     print "============================"
-    newindices = hm.lookup(ents)
+    newindices = lookup(hm, ents)
     validate(indices, newindices)
     rep = hm.report()
     assert rep['count'] == len(ents)
@@ -166,7 +166,7 @@ def t10():
     
     hm = _setup_new(ents, indices)
     
-    newindices = hm.lookup(ents)
+    newindices = lookup(hm, ents)
     validate(indices, newindices)
     rep = hm.report()
     assert rep['count'] == sz
@@ -175,7 +175,7 @@ def t10():
     rep = hm.report()
     assert rep['count'] == (sz-rm)
     remains = np.setdiff1d(rng, rems, assume_unique=True)
-    newindices = hm.lookup(ents[remains])
+    newindices = lookup(hm, ents[remains])
     rep = hm.report()
     validate(indices[remains], newindices)
     assert rep['count'] == (sz-rm)
@@ -194,7 +194,7 @@ def t11():
     
     hm = _setup_new(ents, indices)
     
-    newindices = hm.lookup(ents)
+    newindices = lookup(hm, ents)
     validate(indices, newindices)
     rep = hm.report()
     assert rep['count'] == sz
@@ -203,7 +203,7 @@ def t11():
     rep = hm.report()
     assert rep['count'] == (sz-rm)
     remains = np.setdiff1d(rng, rems, assume_unique=True)
-    newindices = hm.lookup(ents[remains])
+    newindices = lookup(hm, ents[remains])
     rep = hm.report()
     validate(indices[remains], newindices)
     assert rep['count'] == (sz-rm)
@@ -211,13 +211,17 @@ def t11():
     
 # =======================================================================
     
+def lookup(hm, ents):
+    digs = hashmap.Digs.fromentries(ents)
+    return hm.lookup(digs, ents)
+    
 def tes_all_new(entries, indices):
     ents = np.array(entries, dtype=dt)
     return _tes_all_new(ents, indices)
 
 def _tes_all_new(entries, indices):
     hm = _setup_new(entries, indices)
-    newindices = hm.lookup(entries)
+    newindices = lookup(hm, entries)
     validate(indices, newindices)
     return hm
 
