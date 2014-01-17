@@ -1,5 +1,5 @@
 # collector
-python flowcon/main.py -i "tcp://10.1.31.81:5556" -q "tcp://*:5567" -o "tcp://*:5568"
+python -m flowcon.main -i "tcp://10.1.31.81:5556" -q "tcp://*:5567" -s "tcp://*:5568"
 
 # tester
 python -m test.query -i "tcp://localhost:5567" -f sourceIPv4Address destinationIPv4Address -p 5
