@@ -57,15 +57,36 @@ typedef struct PACKED ipfix_flow_tuple {
 } ipfix_flow_tuple_t;
 
 typedef struct PACKED ipfix_attributes {
-	uint32_t nexthop;
-	uint32_t inpsnmp;
-	uint32_t outsnmp;
-	uint8_t  tcpflags;
 	uint8_t  tos;
+	uint8_t  tcpflags;
+	uint8_t  srcmask;
+	uint32_t inpsnmp;
+	uint8_t  dstmask;
+	uint32_t outsnmp;
+	uint32_t nexthop;
 	uint32_t srcas;
 	uint32_t dstas;
-	uint8_t  srcmask;
-	uint8_t  dstmask;
 } ipfix_attributes_t;
+
+typedef uint32_t indextype;
+
+typedef struct PACKED ipfix_store_flow {
+	indextype			next;
+	uint32_t			crc;
+	ipfix_flow_tuple_t 	flow;
+	indextype			attrindex;
+} ipfix_store_flow_t;
+
+typedef struct PACKED ipfix_store_attributes {
+	indextype			next;
+	uint32_t			crc;
+	ipfix_attributes_t 	attributes;
+} ipfix_store_attributes_t;
+
+typedef struct PACKED ipfix_store_entry {
+	indextype			next;
+	uint32_t			crc;
+	char				data[0];
+} ipfix_store_entry_t;
 
 #endif /* FLOW_IPFIX_H_ */
