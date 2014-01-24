@@ -7,8 +7,10 @@ Created on Jan 15, 2014
 import socket, os, sys
 
 libloc = os.path.join(os.path.dirname(__file__), '..', '..', 'cython')
-sys.path.append(libloc)
+sys.path.insert(0, libloc)
+
 recmod = __import__('receiver')
+colmod = __import__('collectors')
 
 def main():
     myaddr = "10.215.1.6"
@@ -32,7 +34,7 @@ class Sources(object):
             cls.allsources[ip] = src
             print "created %s"%(src.name)
 
-        return src._flows, src._attrs
+        return src._flows, src._attrs, src._seconds
     
     def __init__(self, ip):
         nm = ''
@@ -40,8 +42,9 @@ class Sources(object):
             nm = ('%d.'%(ip & 0xFF))+nm 
             ip >>= 8
         self._name = nm[:-1]
-        self._flows = recmod.FlowCollector("F:"+self._name)
-        self._attrs = recmod.AttrCollector("A:"+self._name)
+        self._attrs = colmod.AttrCollector("A:"+self._name)
+        self._seconds = colmod.SecondsCollector("S:"+self._name)
+        self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
         
     @property
     def name(self):

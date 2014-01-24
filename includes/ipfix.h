@@ -75,6 +75,7 @@ typedef struct PACKED ipfix_store_flow {
 	uint32_t			crc;
 	ipfix_flow_tuple_t 	flow;
 	indextype			attrindex;
+	uint16_t			refcount;
 } ipfix_store_flow_t;
 
 typedef struct PACKED ipfix_store_attributes {
@@ -88,5 +89,11 @@ typedef struct PACKED ipfix_store_entry {
 	uint32_t			crc;
 	char				data[0];
 } ipfix_store_entry_t;
+
+typedef struct PACKED ipfix_store_counts {
+	indextype		 	flowindex;
+	uint32_t			bytes;
+	uint32_t			packets;
+} ipfix_store_counts_t;
 
 #endif /* FLOW_IPFIX_H_ */

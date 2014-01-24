@@ -16,5 +16,6 @@ class cpp_build_ext(build_ext):
             pass
         build_ext.build_extension(self, ext)
 
-setup(ext_modules = cythonize(["receiver.pyx"]),
-      cmdclass = {'build_ext': cpp_build_ext})
+res = setup(ext_modules = cythonize(["misc.pyx", "receiver.pyx", "collectors.pyx"]),
+            cmdclass = {'build_ext': cpp_build_ext},
+            script_args=['build_ext', '--inplace'])
