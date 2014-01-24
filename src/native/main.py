@@ -25,6 +25,7 @@ def main():
 
 class Sources(object):
     allsources = {}
+    maxseconds = 3600
 
     @classmethod
     def find(cls, ip):
@@ -43,8 +44,8 @@ class Sources(object):
             ip >>= 8
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
-        self._seconds = colmod.SecondsCollector("S:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
+        self._seconds = colmod.SecondsCollector("S:"+self._name, self._flows, self.maxseconds)
         
     @property
     def name(self):

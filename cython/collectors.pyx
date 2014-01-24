@@ -12,6 +12,8 @@ cimport numpy as np
 from common cimport *
 from misc cimport logger, showflow, showattr
 
+cdef uint32_t INVALID = (<uint32_t>(-1))
+
 cdef uint32_t minsize = 16
 cdef float growthrate = 2.0
 cdef float shrinkrate = 2.0
@@ -25,8 +27,17 @@ def _dummy():
 
 cdef class SecondsCollector(object):
 
-    def __init__(self, nm):
+    def __init__(self, nm, FlowCollector flows, uint32_t secondsdepth):
+        cdef uint32_t pos
         self._name = nm
+        self._flows = flows
+        self._depth = secondsdepth
+        self._seconds = np.zeros(secondsdepth, dtype=np.uint32)
+        
+        for pos in range(secondsdepth):
+            self._seconds[pos] = INVALID
+        
+        self._currentsec = 0
 
         self._alloc(minsize)
 
@@ -40,7 +51,7 @@ cdef class SecondsCollector(object):
         cdef np.ndarray[np.uint8_t, ndim=2] arr
         arr = self._counters
         self._counterset = <ipfix_store_counts*>arr.data
-        self._maxcount = self._counters.size
+        self._maxcount = size
         self._end = self._counterset + self._maxcount
         
     cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex):
@@ -48,6 +59,9 @@ cdef class SecondsCollector(object):
         
         if self._count >= self._maxcount:    # need resize
             self._grow()
+            if self._count >= self._maxcount:
+                logger("can not grow time counters for %s"%(self._name))
+                return
 
         last = self._last
         last.bytes = bytes
@@ -61,19 +75,87 @@ cdef class SecondsCollector(object):
         self._count += 1
 
     cdef void _grow(self):
-        cdef uint32_t newsize = <uint32_t>(self._maxcount*growthrate)
+        cdef uint32_t pos, secpos, offset, startsz, newsize = <uint32_t>(self._maxcount*growthrate)
         cdef ipfix_store_counts* start = self._counterset
         cdef ipfix_store_counts* end = self._end
         cdef oldcounters = self._counters
+        cdef uint64_t startbytes, endbytes
 
+        logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
+        
         self._alloc(newsize)
         
-        # move old data to new location; self._first should be equal to self._last 
-        memcpy(self._counterset, self._first)
+        # move old data to new location
+        offset = <uint32_t>(((<uint64_t>self._first) - (<uint64_t>start))/sizeof(ipfix_store_counts));
 
+        if self._first >= self._last:
+            startbytes = (<uint64_t>end) - (<uint64_t>self._first);
+            startsz = <uint32_t>(startbytes/sizeof(ipfix_store_counts))
+            if startbytes > 0:
+                memcpy(self._counterset, self._first, startbytes)
+            endbytes = (<uint64_t>self._last) - (<uint64_t>start);
+            if endbytes > 0:
+                memcpy((<unsigned char*>self._counterset)+startbytes, start, endbytes)
+            # update pointers to where relocated data is sitting now
+            for pos in range(self._depth):
+                secpos = self._seconds[pos]
+                if secpos == INVALID: continue
+                if (start+secpos) >= self._first:   # it is in upper chunk
+                    self._seconds[pos] = secpos-offset  # shift down
+                else:                               # it is in lower chunk
+                    self._seconds[pos] = secpos+startsz # shift up
+        else:
+            startbytes = (<uint64_t>self._last) - (<uint64_t>self._first);
+            memcpy(self._counterset, self._first, startbytes)
+            # update pointers to where relocated data is sitting now
+            for pos in range(self._depth):
+                secpos = self._seconds[pos]
+                if secpos == INVALID: continue
+                self._seconds[pos] = secpos-offset
+        
         self._first = self._counterset
         self._last = self._counterset + self._count
+        
         del oldcounters     # not needed; just in case
+        
+    @cython.boundscheck(False)
+    def onsecond(self):
+        cdef uint32_t newpos, next
+        cdef uint32_t current = self._currentsec
+        
+        current += 1        # oldest seconds position
+        if current >= self._depth:
+            current = 0
+
+        next = current + 1  # next to oldest; this is where oldest ends
+        if next >= self._depth:
+            next = 0
+            
+        self._removeold(self._seconds[current], self._seconds[next])
+        
+        newpos = <uint32_t>(((<uint64_t>self._last) - (<uint64_t>self._counterset))/sizeof(ipfix_store_counts))
+        self._seconds[current] = newpos
+        self._currentsec = current
+        
+    cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos):
+        cdef ipfix_store_counts* start
+        cdef uint32_t count
+        # need to remove oldest seconds if we already have valid points
+        if lastpos == INVALID: return
+
+        start = self._counterset+lastpos
+        if nextpos >= lastpos:
+            count = nextpos - lastpos
+            if count > 0:
+                self._flows.remove(start, count)
+        else:
+            # it's split into two chunks; remove one then another 
+            count = self._maxcount-lastpos
+            if count > 0:
+                self._flows.remove(start, count)
+            count = nextpos   # count = nextpos - 0
+            if count > 0:
+                self._flows.remove(self._counterset, count) # from very beginning of buffer to nextpos
 
 cdef class Collector(object):
 
@@ -260,52 +342,71 @@ cdef class FlowCollector(Collector):
                                                                      showattr(cython.address(curr.attributes))))
             flowrec.attrindex = index
 
-    cdef void remove(self, uint32_t pos):
+    cdef void remove(self, const ipfix_store_counts* counts, uint32_t num):
         cdef unsigned char* eset = self.entryset
         cdef int sz = self._width
-        cdef ipfix_store_flow* flow = <ipfix_store_flow*>(eset+pos*sz)
+        cdef ipfix_store_flow* flow
+        cdef ipfix_store_flow* nextflow
+        cdef uint32_t pos, maxindex = 0, index
+
+        for pos in range(num):
+            index = counts[pos].flowindex
+
+            flow = <ipfix_store_flow*>(eset+index*sz)
+            
+            if flow.refcount == 0:  # already deleted 
+                continue
+            if flow.refcount > 1:   # still referenced
+                flow.refcount -= 1
+                continue
+
+            flow.refcount = 0
+            if maxindex < index: maxindex = index
+            
+            self._removepos(<ipfix_store_entry*>flow, index, sz) # delete entry
+            # let's link removed flow in reverse direction;
+            # assuming flow is first in free list
+            if flow.next != 0:
+                nextflow = <ipfix_store_flow*>(eset+flow.next*sz)
+                flow.attrindex = nextflow.attrindex
+                nextflow.attrindex = index
+            else:
+                flow.attrindex = 0
+        
+        if maxindex > 0:            # something was actually deleted
+            self._shrink(maxindex)    # try to shrink
+        
+    cdef void _shrink(self, uint32_t maxpos):
+        cdef uint32_t newsize
+        cdef uint32_t last = self.end-1
+
+        if maxpos != last: return
+
+        cdef unsigned char* eset = self.entryset        
+        cdef uint32_t sz = self._width
+        cdef ipfix_store_flow* flow = <ipfix_store_flow*>(eset+maxpos*sz)
         cdef ipfix_store_flow* nextflow, *prevflow
 
-        if flow.refcount == 0: return # already deleted
-        if flow.refcount > 1:
-            flow.refcount -= 1
-            return # still referenced
-        flow.refcount = 0
-        
-        self._removepos(<ipfix_store_entry*>flow, pos, sz) # delete entry
-        
-        # let's link in reverse direction;
-        # assuming flow is first in free list
-        if flow.next != 0:
-            nextflow = <ipfix_store_flow*>(eset+flow.next*sz)
-            flow.attrindex = nextflow.attrindex
-            nextflow.attrindex = pos
-        else:
-            flow.attrindex = 0
-         
-        cdef uint32_t last = self.end-1
-        if pos == last:  # let's shrink inventory until first non-free record
-            while flow.refcount == 0:
-                if flow.next > 0:   # fix next
-                    nextflow = <ipfix_store_flow*>(eset+flow.next*sz)
-                    nextflow.attrindex = flow.attrindex
-                if flow.attrindex > 0: # fix previous
-                    prevflow = <ipfix_store_flow*>(eset+flow.attrindex*sz)
-                    prevflow.next = flow.next
-                else:  # it's the first one in the list 
-                    self.freepos = flow.next
-                self.freecount -= 1
-                last -= 1
-                if last == 0: break
-                flow = <ipfix_store_flow*>(eset+last*sz)
-            self.end = last+1
-            if last*3 < self.maxentries: # need to shrink
-                self._shrink()
-        
-    cdef void _shrink(self):
-        cdef uint32_t newsize = <uint32_t>(self.maxentries/shrinkrate)
-        if newsize < minsize: return
-        self._resize(newsize)
+        # let's shrink inventory until first non-free record
+        while flow.refcount == 0:
+            if flow.next > 0:   # fix next
+                nextflow = <ipfix_store_flow*>(eset+flow.next*sz)
+                nextflow.attrindex = flow.attrindex
+            if flow.attrindex > 0: # fix previous
+                prevflow = <ipfix_store_flow*>(eset+flow.attrindex*sz)
+                prevflow.next = flow.next
+            else:  # it's the first one in the list 
+                self.freepos = flow.next
+            self.freecount -= 1
+            last -= 1
+            if last == 0: break
+            flow = <ipfix_store_flow*>(eset+last*sz)
+
+        self.end = last+1
+        if last*3 < self.maxentries: # need to shrink whole buffer to release some unused memory
+            newsize = <uint32_t>(self.maxentries/shrinkrate)
+            if newsize < minsize: return
+            self._resize(newsize)
         
 #    cdef _compact(self):
 #        cdef uint32_t freepos

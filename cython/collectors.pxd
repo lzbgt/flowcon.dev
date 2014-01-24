@@ -1,20 +1,6 @@
 
 from common cimport *
 
-cdef class SecondsCollector(object):
-    cdef _name
-    cdef _counters
-    cdef ipfix_store_counts* _counterset
-    cdef ipfix_store_counts* _last
-    cdef ipfix_store_counts* _first
-    cdef ipfix_store_counts* _end
-    cdef uint32_t _maxcount
-    cdef uint32_t _count
-	
-    cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex)
-    cdef void _alloc(self, uint32_t size)
-    cdef void _grow(self)
-
 cdef class Collector(object):
     cdef unsigned char* entryset
     cdef uint32_t adler
@@ -40,8 +26,28 @@ cdef class FlowCollector(Collector):
     cdef AttrCollector _attributes
     
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index)
-    cdef void remove(self, uint32_t pos)
-    cdef void _shrink(self)
+    cdef void remove(self, const ipfix_store_counts* counts, uint32_t num)
+    cdef void _shrink(self, uint32_t maxpos)
 
 cdef class AttrCollector(Collector):
     pass
+
+cdef class SecondsCollector(object):
+    cdef _name
+    cdef _counters
+    cdef ipfix_store_counts* _counterset
+    cdef ipfix_store_counts* _last
+    cdef ipfix_store_counts* _first
+    cdef ipfix_store_counts* _end
+    cdef uint32_t _maxcount
+    cdef uint32_t _count
+    cdef uint32_t _depth
+    cdef uint32_t [:] _seconds
+    cdef uint32_t _currentsec
+    cdef FlowCollector _flows
+	
+    cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex)
+    cdef void _alloc(self, uint32_t size)
+    cdef void _grow(self)
+    cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos)
+    
