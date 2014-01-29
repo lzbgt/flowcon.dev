@@ -31,7 +31,7 @@ class Type(object):
 class IntType(Type):
     def convert(self, val):
         return val
-
+    
 class IPType(Type):
     iptypes = {}
     

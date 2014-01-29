@@ -147,29 +147,26 @@ cdef class Receiver(object):
         cdef RawQuery q = self.first
 
         while q is not None:
-            if q.onflow(flow) == 0:
-                # remove the query
-                next = q.next
-                if next is not None:
-                    next.prev = q.prev
-                if q.prev is None:
-                    self.first = next
-                else:
-                    q.prev.next = next
-                del q                    
-                q = next
-                continue
+            q.onflow(flow)
             q = q.next
         
-    @cython.boundscheck(False)
-    def register(self):
-        cdef RawQuery q
-        q = RawQuery()
+    def register(self, RawQuery q):
         q.next = self.first
+        q.prev = None
         self.first = q
         if q.next is not None:
             q.next.prev = q
- 
+            
+    def unregister(self, RawQuery q):
+        cdef RawQuery next = q.next
+        if next is not None:
+            next.prev = q.prev
+            q.next = None
+        if q.prev is not None:
+            q.prev.next = next
+            q.prev = None
+        else:
+            self.first = next
 
 cdef void convertflow(const ipfix_flow* inflow, ipfix_flow* outflow) nogil:
     outflow.bytes = ntohl(inflow.bytes)

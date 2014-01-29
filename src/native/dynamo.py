@@ -16,26 +16,36 @@ import query
 
 ipmaskre = re.compile('(?P<b0>\d{1,3})\.(?P<b1>\d{1,3})\.(?P<b2>\d{1,3})\.(?P<b3>\d{1,3})/(?P<mask>\d{1,2})$')
 
+class Builder(object):
+
+    def __init__(self):
+        self.top = os.path.join(os.path.dirname(__file__), '..', '..', 'cython')
+        self.loc = os.path.join(self.top, 'gen')
+        self.incs = os.path.join(self.top, '..', 'includes')
+
+    def build(self, cls, fields):
+        qid, css, lss, s = validate(fields)
+        fname = os.path.join(self.loc, 'Q_%s.c'%(qid))
+        mname = 'Q_'+qid
+        modfile = os.path.join(self.loc, mname+'.so')
+        if not os.path.isfile(modfile):
+            gensource(fname, qid, css, lss, s)
+            build(self.incs, self.loc, fname, qid, mname)
+        
+        return cls(os.path.join(self.loc, modfile), qid)
+    
+dynbuilder = Builder()    
+    
 def main():
-    fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*']}
+    fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
+    #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
 
-    top = os.path.join(os.path.dirname(__file__), '..', '..', 'cython')
-    loc = os.path.join(top, 'gen')
-    incs = os.path.join(top, '..', 'includes')
-    fname = os.path.join(loc, 'test.c')
-    
-
-    qid, css, lss = validate(fields)
-    
-    mname = 'Q_'+qid
-    modfile = os.path.join(loc, mname+'.so')
-    if not os.path.isfile(modfile):
-        gensource(fname, qid, css, lss)
-        build(incs, loc, fname, qid, mname)
-    
-    rq = qmod.RawQuery(os.path.join(loc, modfile), qid)
+    rq = dynbuilder.build(qmod.RawQuery, fields)
     
     rq.testflow(0x01020406)
+
+def genraw(fields):
+    return dynbuilder.build(qmod.RawQuery, fields)
 
 def validate(fields):
     lss = set()
@@ -48,7 +58,7 @@ def validate(fields):
         if isone(fv):
             fv = fv.strip()            
             if fv == '*': 
-                lss.add(tofield(fk))
+                lss.add(ftype)
             else:
                 css[fk] = [_mkone(ftype, fv)]
         else:
@@ -56,29 +66,32 @@ def validate(fields):
             for v in fv:
                 v = v.strip()                
                 if v == '*':
-                    lss.add(tofield(fk))
+                    lss.add(ftype)
                 else:
                     ss.add(_mkone(ftype, v))
             css[fk] = sorted(ss)
 
     # all fields we need to consider for aggregation
     # (except counters fields) and report, i.e. all `*` fields
-    ls = ['%d'%x for x in sorted(lss)]
+    lss = sorted(lss, key=lambda l: l.id)
+    ls = ['%s'%(x.id) for x in lss]
     res = []
     for fk in sorted(css.keys()):
         res.append((fk, css[fk]))
     res.extend(ls)
 
     sha = hashlib.sha1()
-    sha.update(json.dumps(res))
+    s = json.dumps(res)
+    sha.update(s)
     qid = sha.hexdigest()
-    return qid, css, ls
+    return qid, css, lss, s
     
-def gensource(fname, qid, css, lss):
+def gensource(fname, qid, css, lss, s):
     with open(fname, 'w') as f:
-        writehead(f, qid)
+        writehead(f, s)
         # fields to filter flows with
         # If these fields no not match with given flow then flow is discarded
+        f.write("int fcheck_%s(const ipfix_flow_t* flow){\n"%(qid))
         for fk in sorted(css.keys()):
             lns = css[fk]
             if len(lns) == 1:
@@ -94,8 +107,47 @@ def gensource(fname, qid, css, lss):
                     f.write(' &&\n')
                     f.write(' '*len(s))
                 f.write("(%s)) { return 0; }\n"%(lns[-1]))
+        f.write("    return 1;\n")
+        f.write("}\n")
+        f.write("\n")
+        iptypes = []
+        for ftype in lss:
+            if type(ftype) == query.ntypes.IPType:
+                if not iptypes: writefromip(f)
+                iptypes.append(ftype)
+
+        f.write("void freport_%s(const ipfix_flow_t* flow, char* buf, size_t size){\n"%(qid))
+
+        if iptypes:
+            for ftype in lss:
+                f.write("    char ip_%s[100];\n"%(ftype.name))
+        form = ''
+        vals = []
+        sep = ''
+        for ftype in lss:
+            if type(ftype) == query.ntypes.IPType:
+                vals.append('fromip(flow->%s, ip_%s, sizeof(ip_%s))'%(ftype.name, ftype.name, ftype.name))
+                form += sep+'\\"%s\\"'
+            else:
+                vals.append('flow->%s'%(ftype.name))
+                form += sep+'\\"%d\\"'
+            sep = ', '
+        pref = "    snprintf(buf, size, "
+        off = ' '*len(pref)
+        f.write('%s"[[%s],[%%d,%%d]]", \n'%(pref, form))
+        for v in vals:
+            f.write('%s%s,\n'%(off, v))
+        f.write('%sflow->bytes, flow->packets);\n'%(off))
+        f.write("}\n")
         writetail(f)
     return qid
+
+def writefromip(f):
+    f.write("static const char* fromip(uint32_t ip, char* buf, size_t size){\n")
+    f.write("    unsigned char* pip = (unsigned char*)&ip;\n")
+    f.write('    snprintf(buf, size, "%d.%d.%d.%d", pip[3], pip[2], pip[1], pip[0]);\n')
+    f.write("    return buf;\n")
+    f.write("}\n")
 
 def toint(fk):
     try:
@@ -129,11 +181,13 @@ def ipvariations(value):
     mx = mn | msk
     return mn, mx
 
-def writehead(f, qid):
+def writehead(f, s):
     f.write('#include <stdint.h>\n')
+    f.write('#include <stdio.h>\n')
     f.write('#include "ipfix.h"\n')
     f.write("\n")
-    f.write("int fcheck_%s(const ipfix_flow_t* flow){\n"%(qid))
+    f.write('/*\n %s \n*/'%(s))
+    f.write("\n")
 
 def _mkone(ftype, v):
     if type(ftype) == query.ntypes.IPType:
@@ -151,8 +205,7 @@ def _mkone(ftype, v):
     return "flow->%s != 0x%x"%(ftype.name, toint(v)) 
 
 def writetail(f):
-    f.write("    return 1;\n")
-    f.write("}\n")
+    f.write('\n')
 
 def isone(fv):
     try:

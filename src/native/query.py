@@ -6,7 +6,7 @@ Created on Jan 28, 2014
 
 import datetime, dateutil.tz
 
-import native.types as ntypes
+import native.types as ntypes, native.dynamo
 import flowtools.logger as logger 
 
 tzutc = dateutil.tz.tzutc()
@@ -52,38 +52,52 @@ class Query(object):
         shape = flow.get('shape', None)
 
         time = qry.get('time', None)
-        if time is None: return RawQuery(fields, shape)
+        if time is None: return RawQuery(qry, fields)
 
         # remove time stamp fields
         _cleanuptimefields(fields)
         per = _intfield(time)
         if per is not None:
-            return PeriodicQuery(fields, shape, max(per, 1))
+            return PeriodicQuery(qry, fields, shape, max(per, 1))
 
         mode = time.get('mode', None)
         if mode is None: raise Exception("missing 'time.mode' attribute")
         if mode == 'periodic':
             per = _intfield(time.get('seconds', None))
             if per is None: raise Exception("missing valid 'time.seconds' for 'time.periodic' mode")
-            return PeriodicQuery(fields, shape, max(per, 1))
+            return PeriodicQuery(qry, fields, shape, max(per, 1))
         elif mode == 'flows':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
-            return FlowQuery(fields, shape, newest, oldest)
+            return FlowQuery(qry, fields, shape, newest, oldest)
         elif mode == 'time':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
-            return RangeQuery(fields, newest, oldest)
+            return RangeQuery(qry, fields, newest, oldest)
 
         raise Exception("don't know what to do with 'time.mode==%s'"%(mode))
 
-    def __init__(self, fields):
+    def __init__(self, qry, fields):
+        self._qry = qry
         for cnt in self.counters:
             if cnt.id in fields: del fields[cnt.id]
 #        self._chks, self._reps = _fieldlist(self.counters, fields)
 
+    def value(self):
+        return self._qry
+
 class RawQuery(Query):
-    pass
+    def __init__(self, qry, fields):
+        super(RawQuery, self).__init__(qry, fields)
+        self._native = native.dynamo.genraw(fields)
+        
+    @property
+    def native(self):
+        return self._native
+    
+    @property
+    def id(self):
+        return self._native.id()
 
 class PeriodicQuery(Query):
     pass

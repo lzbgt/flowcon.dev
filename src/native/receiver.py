@@ -26,16 +26,32 @@ class Receiver(object):
         sock.bind((p.hostname, p.port))
         self._sock = sock
 
-        self._receiver = recmod.Receiver(Sources)
+        self._nreceiver = recmod.Receiver(Sources)
+        self._queries = {}
         
         ioloop.add_handler(sock.fileno(), self._recv, ioloop.READ)
         
     def _recv(self, fd, events):
         data, addr = self._sock.recvfrom(2048); addr
-        self._receiver.receive(data, len(data))
+        self._nreceiver.receive(data, len(data))
         
     def sources(self):
         return Sources.allsources.values()
+    
+    def register(self, q, onmsg):
+        qnat = self._queries.get(q.id, None)
+        if qnat: # old query?
+            # re-register in case onmsg is changed
+            self.unregister(self, q.id)
+        qnat = q.native
+        self._queries[q.id] = qnat
+        qnat.setcallback(onmsg)
+        self._nreceiver.register(qnat)
+        
+    def unregister(self, qid):
+        qnat = self._queries.get(qid, None)
+        if qnat:
+            self._nreceiver.unregister(qnat)
 
 class Sources(object):
     allsources = {}
