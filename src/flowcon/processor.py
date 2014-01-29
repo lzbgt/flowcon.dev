@@ -4,25 +4,25 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, time, pprint
+import zmq, datetime, pprint
 
 from zmq.eventloop import ioloop
 ioloop.install()
 
-import connector, flowtools.logger as logger #, query as querymod
-import numpyfy.source as querymod
+import connector, flowtools.logger as logger , query as querymod
+#import numpyfy.source as querymod
+import native.receiver
 
 class FlowProc(connector.Connection):
-    def __init__(self):
+    def __init__(self, receiver):
         self._addresses = {}
         self._live_queries = {}
-        self._sources = {}
-        self.count = 0
+        self._receiver = receiver
 
     def _send_res(self, k, q, res):
         recs = q.records()
         if not recs:
-            # no-one listens to this queue; remove if it's live
+            # no-one listens to this query; remove if it's live
             if k in self._live_queries:
                 del self._live_queries[k]
                 logger.dump("dropping query %s"%k)
@@ -39,43 +39,25 @@ class FlowProc(connector.Connection):
     def _on_status(self, addr, msg):
         stats = []
         fields = {}
-        for s in self._sources.values():
+        for s in self._receiver.sources():
             fields[s.address()] = sorted([int(f) for f in s.fields()])
             stats.append(s.stats())
         res = {'fields':fields, 'stats':stats}
         self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
-                    
-    def on_flow(self, msg):
-        dd = zmq.utils.jsonapi.loads(msg[1])
-        
-        addr = dd.get(querymod.Source.srcaddress.id, None)
-        if addr is None:
-            logger.dump("bad flow: no source: %s "%(msg[1]))
-            return
-        source = self._sources.get(addr, None)
-        if source is None:
-            source = querymod.Source(addr)
-            self._sources[addr] = source
-
-        source.account(dd)
-        
-        for k, qry in self._live_queries.items():
-            res = qry.collect(source, dd)
-            if res: self._send_res(k, qry, res)
-
+             
     def on_time(self):
         # check for expired peers
         now = datetime.datetime.utcnow()
         self._check_peers(now)
 
-        for source in self._sources.values():
+        for source in self._receiver.sources():
             source.on_time(now)
 
         # check for unwanted queues and send updates to listeners
-        stamp = int(time.mktime(now.timetuple()))
-        for k, q in self._live_queries.items():
-            res = q.results(stamp)
-            self._send_res(k, q, res)
+#        stamp = int(time.mktime(now.timetuple()))
+#        for k, q in self._live_queries.items():
+#            res = q.results(stamp)
+#            self._send_res(k, q, res)
 
     def _check_peers(self, now):
         for addr, rec in self._addresses.items():
@@ -116,8 +98,9 @@ class FlowProc(connector.Connection):
                     return
                 if q.is_live():
                     self._live_queries[req] = q
+                    self._receiver.register(q)
             if not q.is_live():
-                res = q.collect_sources(self._sources.values())
+                res = q.collect_sources(self._receiver.sources())
                 self._send(addr, res)
                 q = None    # to record it in QRec as `no pending query`
             record = self._addresses.get(addr, None)
@@ -167,6 +150,7 @@ class QReq(object):
     @property
     def query(self):
         return self._query
+
     @query.setter
     def query(self, q):
         self._query.delrec(self)
@@ -177,9 +161,9 @@ def setup(insock, servsock, qrysock):
     try:
         conn = connector.Connector()
         
-        fproc = FlowProc()
-        
-        conn.subscribe(insock, 'flow', fproc.on_flow)
+        recvr = native.receiver.Receiver(insock, conn.loop)
+
+        fproc = FlowProc(recvr)
         
         conn.timer(1, fproc.on_time)
 

@@ -6,6 +6,8 @@ Created on Jan 15, 2014
 
 import socket, os, sys
 
+import native.receiver as natreceiver
+
 libloc = os.path.join(os.path.dirname(__file__), '..', '..', 'cython')
 sys.path.insert(0, libloc)
 
@@ -18,38 +20,10 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((myaddr, myport))
 
-    receiver = recmod.Receiver(Sources)
+    receiver = recmod.Receiver(natreceiver.Sources)
     while True:
         data, addr = sock.recvfrom(2048); addr
         receiver.receive(data, len(data))
-
-class Sources(object):
-    allsources = {}
-    maxseconds = 3600
-
-    @classmethod
-    def find(cls, ip):
-        src = cls.allsources.get(ip, None)
-        if src is None:
-            src = cls(ip)
-            cls.allsources[ip] = src
-            print "created %s"%(src.name)
-
-        return src._flows, src._attrs, src._seconds
-    
-    def __init__(self, ip):
-        nm = ''
-        for _ in range(4):
-            nm = ('%d.'%(ip & 0xFF))+nm 
-            ip >>= 8
-        self._name = nm[:-1]
-        self._attrs = colmod.AttrCollector("A:"+self._name)
-        self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._seconds = colmod.SecondsCollector("S:"+self._name, self._flows, self.maxseconds)
-        
-    @property
-    def name(self):
-        return self._name
 
 if __name__ == '__main__':
     main()

@@ -4,15 +4,15 @@ cdef extern from "stdint.h":
     ctypedef long uint64_t
 
 cdef extern from "netinet/in.h":
-    int ntohs (int __netshort)
-    long ntohl (long __netlong)
+    int ntohs (int __netshort) nogil
+    long ntohl (long __netlong) nogil
 
 cdef extern from "string.h" nogil:
-    int memcmp (const void *A1, const void *A2, size_t SIZE)
-    void *memcpy(void *restrict, const void *restrict, size_t)
+    int memcmp (const void *A1, const void *A2, size_t SIZE) nogil
+    void *memcpy(void *restrict, const void *restrict, size_t) nogil
 
 cdef extern from "zlib.h":
-    long adler32(long crc, const unsigned char * buf, int len)
+    long adler32(long crc, const unsigned char * buf, int len) nogil
 
 cdef extern:
     int _import_array()

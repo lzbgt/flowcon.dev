@@ -32,6 +32,7 @@ class Connector(object):
 
     def __init__(self):
         self._ctx = zmq.Context()
+        self.loop = ioloop.IOLoop.instance()
 
     def _setup(self, sock, addr, con, method):
         self._con = con
@@ -47,12 +48,10 @@ class Connector(object):
 
         getattr(sock, method)(addr)
         
-        loop = ioloop.IOLoop.instance()
-        loop.start()
+        self.loop.start()
 
     def stop(self):
-        loop = ioloop.IOLoop.instance()
-        loop.stop()
+        self.loop.stop()
 
     def connect(self, addr, con):
         sock = self._ctx.socket(zmq.DEALER)
@@ -71,8 +70,7 @@ class Connector(object):
         stream_sub.on_recv(callback)
         
     def timer(self, seconds, on_time):
-        loop = ioloop.IOLoop.instance()
-        timer = ioloop.PeriodicCallback(on_time, seconds*1000, loop)
+        timer = ioloop.PeriodicCallback(on_time, seconds*1000, self.loop)
         timer.start()
         
     def publish(self, addr):

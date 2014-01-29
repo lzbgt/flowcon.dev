@@ -11,7 +11,8 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
-from misc cimport logger
+from misc cimport logger, showflow
+from nquery cimport RawQuery
 from collectors cimport SecondsCollector, Collector
 
 def _dummy():
@@ -27,22 +28,23 @@ cdef class Receiver(object):
     cdef SecondsCollector   seccollect
     cdef Collector flowcollect
     cdef Collector attrcollect
+    cdef RawQuery first
 
     def __cinit__(self, sourceset):
-        print "header size",sizeof(ipfix_header)
-        print "set size",sizeof(ipfix_template_set_header)
-        print "flow size",sizeof(ipfix_flow)
-        print "ulong",sizeof(uint32_t)
+#        print "header size",sizeof(ipfix_header)
+#        print "set size",sizeof(ipfix_template_set_header)
+#        print "flow size",sizeof(ipfix_flow)
         self.sourceset = sourceset
         self.exporter = 0
         self.seccollect = None
         self.flowcollect = None
         self.attrcollect = None
+        self.first = None
         
     def __dealloc__(self):
         pass
         
-    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    @cython.boundscheck(False)
     def receive(self, const char* buffer, int size):
         cdef ipfix_template_set_header* header
         cdef ipfix_header* buf = <ipfix_header*>buffer
@@ -72,7 +74,7 @@ cdef class Receiver(object):
 
         return
     
-    cdef void _onflows(self, const ipfix_flow* flow, int bytes):
+    cdef void _onflows(self, const ipfix_flow* inflow, int bytes):
         cdef int count = bytes/sizeof(ipfix_flow)
         cdef ipfix_flow_tuple ftup
         cdef ipfix_flow_tuple* ftup_p
@@ -82,15 +84,20 @@ cdef class Receiver(object):
         cdef uint32_t (*fadd)(Collector slf, const void* ptr, uint32_t index, int dsize)
         cdef uint32_t (*aadd)(Collector slf, const void* ptr, uint32_t index, int dsize)
         cdef void     (*tadd)(SecondsCollector slf, uint32_t bts, uint32_t packets, uint32_t flowindex)
-        cdef uint32_t index, pos, exporter
+        cdef uint32_t index, pos, exporter, fexp
         cdef Collector fcol, acol
         cdef SecondsCollector scol
+        cdef ipfix_flow outflow, *flow
+        
+        flow = cython.address(outflow)
         
         exporter = self.exporter
-        if exporter != flow.exporter:
-            exporter = flow.exporter
+        fexp = ntohl(inflow.exporter)
+        
+        if exporter != fexp:
+            exporter = fexp
             self.exporter = exporter
-            self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(ntohl(exporter))
+            self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(exporter)
 
         fcol = self.flowcollect
         acol = self.attrcollect
@@ -101,10 +108,14 @@ cdef class Receiver(object):
 
         #logger("%d"%count)
         while count > 0:
+            convertflow(inflow, flow)
+            
+            self.onqueries(flow)
+            
             if exporter != flow.exporter:
                 exporter = flow.exporter
                 # pull matching collectors and save them for later use
-                self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(ntohl(exporter))
+                self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(exporter)
                 self.exporter = exporter
                 # reinit everything for new collectors
                 fcol = self.flowcollect
@@ -116,6 +127,7 @@ cdef class Receiver(object):
                     
             ftup_p = cython.address(ftup)
             atup_p = cython.address(atup)
+            
             copyflow(flow, ftup_p)
             copyattr(flow, atup_p)
             
@@ -127,17 +139,67 @@ cdef class Receiver(object):
             tadd(scol, flow.bytes, flow.packets, index)
 
             #logger("  (%s)"%(showflow(cython.address(ftup))))
-            flow += 1
+            inflow += 1
             count -= 1
+            
+    cdef void onqueries(self, const ipfix_flow* flow):
+        cdef RawQuery next
+        cdef RawQuery q = self.first
 
-cdef void copyflow(const ipfix_flow* flow, ipfix_flow_tuple* ftup):
-    ftup.protocol = flow.protocol
-    ftup.srcport = ntohs(flow.srcport)
-    ftup.srcaddr = ntohl(flow.srcaddr)
-    ftup.dstport = ntohs(flow.dstport)
-    ftup.dstaddr = ntohl(flow.dstaddr)
+        while q is not None:
+            if q.onflow(flow) == 0:
+                # remove the query
+                next = q.next
+                if next is not None:
+                    next.prev = q.prev
+                if q.prev is None:
+                    self.first = next
+                else:
+                    q.prev.next = next
+                del q                    
+                q = next
+                continue
+            q = q.next
+        
+    @cython.boundscheck(False)
+    def register(self):
+        cdef RawQuery q
+        q = RawQuery()
+        q.next = self.first
+        self.first = q
+        if q.next is not None:
+            q.next.prev = q
+ 
+
+cdef void convertflow(const ipfix_flow* inflow, ipfix_flow* outflow) nogil:
+    outflow.bytes = ntohl(inflow.bytes)
+    outflow.packets = ntohl(inflow.packets)
+    outflow.protocol = inflow.protocol
+    outflow.tos = inflow.tos
+    outflow.tcpflags = inflow.tcpflags
+    outflow.srcport = ntohs(inflow.srcport)
+    outflow.srcaddr = ntohl(inflow.srcaddr)
+    outflow.srcmask = inflow.srcmask
+    outflow.inpsnmp = ntohl(inflow.inpsnmp)
+    outflow.dstport = ntohs(inflow.dstport)
+    outflow.dstaddr = ntohl(inflow.dstaddr)
+    outflow.dstmask = inflow.dstmask
+    outflow.outsnmp = ntohl(inflow.outsnmp)
+    outflow.nexthop = ntohl(inflow.nexthop)
+    outflow.srcas = ntohl(inflow.srcas)
+    outflow.dstas = ntohl(inflow.dstas)
+    outflow.last = ntohl(inflow.last)
+    outflow.first = ntohl(inflow.first)
+    outflow.exporter = ntohl(inflow.exporter)
     
-cdef void copyattr(const ipfix_flow* flow, ipfix_attributes* atup):
+cdef void copyflow(const ipfix_flow* flow, ipfix_flow_tuple* ftup) nogil:
+    ftup.protocol = flow.protocol
+    ftup.srcport = flow.srcport
+    ftup.srcaddr = flow.srcaddr
+    ftup.dstport = flow.dstport
+    ftup.dstaddr = flow.dstaddr
+    
+cdef void copyattr(const ipfix_flow* flow, ipfix_attributes* atup) nogil:
     atup.tos = flow.tos
     atup.tcpflags = flow.tcpflags
     atup.srcmask = flow.srcmask

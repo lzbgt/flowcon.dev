@@ -19,8 +19,8 @@ class Source(object):
     dstaddr = flows.IPType('dstaddr', '12', 4)
 
     # special fields
-    endstamp = flows.TimeType('endstamp', '21', 0)
-    startstamp = flows.TimeType('startstamp', '22', 0)
+    endstamp = flows.TimeType('endstamp', '21', 4)
+    startstamp = flows.TimeType('startstamp', '22', 4)
     srcaddress = flows.IPType('exportaddr', '130', 4)
 
     # attribute fields    
@@ -107,6 +107,3 @@ class Source(object):
     def address(self):
         return self._addr
         
-class Query(object):
-    def create(self):
-        pass

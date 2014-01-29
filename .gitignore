@@ -2,3 +2,4 @@
 cython/build/
 cython/*.c
 cython/*.so
+cython/gen/

@@ -1,5 +1,8 @@
 # collector
+#  zmq version
 python -m flowcon.main -i "tcp://10.1.31.81:5556" -q "tcp://*:5567" -s "tcp://*:5568"
+#  native version
+python -m flowcon.main -i "udp://10.215.1.6:2059" -q "tcp://*:5567" -s "tcp://*:5568"
 
 # tester
 python -m test.query -i "tcp://localhost:5567" -f sourceIPv4Address destinationIPv4Address -p 5

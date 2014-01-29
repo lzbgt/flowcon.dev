@@ -45,7 +45,11 @@ class IPType(Type):
         return res
 
 class TimeType(Type):
-    pass
+    timetypes = {}
+    
+    def __init__(self, *args):
+        super(TimeType, self).__init__(*args)
+        self.timetypes[self.id] = self
 
 class Flow(object):
     def __init__(self, types, row, dig):
