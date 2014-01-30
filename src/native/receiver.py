@@ -42,7 +42,7 @@ class Receiver(object):
         qnat = self._queries.get(q.id, None)
         if qnat: # old query?
             # re-register in case onmsg is changed
-            self.unregister(self, q.id)
+            self.unregister(q.id)
         qnat = q.native
         self._queries[q.id] = qnat
         qnat.setcallback(onmsg)

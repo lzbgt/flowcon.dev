@@ -102,15 +102,21 @@ class Query(flowcon.connector.Connection):
 
     def on_msg(self, msg):
         rep = zmq.utils.jsonapi.loads(msg[0])
-        ll = rep['counts']
-        tots = rep.get('totals', None)
-        if tots:
-            totmsg = '(totals: %s entries: %d)'%(tots['counts'], tots['entries'])
+        if not hasattr(rep, '__dict__'):
+            print rep
         else:
-            totmsg = ''
-        print "got %d entries %s"%(len(ll), totmsg)
-        for l in ll:
-            print '  %s'%l
+            ll = rep.get('counts', None)
+            if ll is None:
+                print rep
+            else:
+                tots = rep.get('totals', None)
+                if tots:
+                    totmsg = '(totals: %s entries: %d)'%(tots['counts'], tots['entries'])
+                else:
+                    totmsg = ''
+                print "got %d entries %s"%(len(ll), totmsg)
+                for l in ll:
+                    print '  %s'%l
         print
         if self._once: self._once()
         

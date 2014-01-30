@@ -93,7 +93,7 @@ class FlowProc(connector.Connection):
         qrec = self._long_queries.get(q.id, None)
         if qrec is None:
             qrec = QRecord(q)
-            self._long_queries = qrec
+            self._long_queries[q.id] = qrec
             if type(q) == querymod.RawQuery:
                 # only raw queries need to be registered with receiver                
                 def onmsg(msg):
@@ -122,7 +122,7 @@ class FlowProc(connector.Connection):
 class QRecord(object):
     def __init__(self, q):
         self.query = q
-        self.qset = set()
+        self.aset = set()
 
 class ARecord(object):
     maxmisses = 3

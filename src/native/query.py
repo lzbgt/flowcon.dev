@@ -98,15 +98,24 @@ class RawQuery(Query):
     @property
     def id(self):
         return self._native.id()
+    
+    def is_live(self):
+        return True
 
 class PeriodicQuery(Query):
-    pass
+
+    def is_live(self):
+        return True
 
 class FlowQuery(Query):
-    pass
+    
+    def is_live(self):
+        return False
 
 class RangeQuery(Query):
-    pass
+
+    def is_live(self):
+        return False    
 
 def stamp2time(stamp):
     if stamp is None: return None

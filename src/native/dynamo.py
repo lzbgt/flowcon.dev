@@ -19,7 +19,7 @@ ipmaskre = re.compile('(?P<b0>\d{1,3})\.(?P<b1>\d{1,3})\.(?P<b2>\d{1,3})\.(?P<b3
 class Builder(object):
 
     def __init__(self):
-        self.top = os.path.join(os.path.dirname(__file__), '..', '..', 'cython')
+        self.top = os.path.normpath(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'cython')))
         self.loc = os.path.join(self.top, 'gen')
         self.incs = os.path.join(self.top, '..', 'includes')
 
@@ -34,7 +34,7 @@ class Builder(object):
         
         return cls(os.path.join(self.loc, modfile), qid)
     
-dynbuilder = Builder()    
+dynbuilder = Builder()
     
 def main():
     fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
