@@ -6,7 +6,7 @@ Created on Jan 28, 2014
 
 import datetime, dateutil.tz
 
-import native.types as ntypes, native.dynamo
+import native.types as ntypes, native.dynamo, time
 import flowtools.logger as logger 
 
 tzutc = dateutil.tz.tzutc()
@@ -86,6 +86,10 @@ class Query(object):
     def value(self):
         return self._qry
 
+class QueryBuffer(object):
+    def __init__(self):
+        self._native = native.dynamo.qmod.QueryBuffer()
+        
 class RawQuery(Query):
     def __init__(self, qry, fields):
         super(RawQuery, self).__init__(qry, fields)
@@ -102,10 +106,43 @@ class RawQuery(Query):
     def is_live(self):
         return True
 
-class PeriodicQuery(Query):
+def mkstamp(d):
+    return int(time.mktime(d.timetuple()))
 
+class PeriodicQuery(Query):
+    vicinity = 0.1 # seconds
+    
+    def __init__(self, qry, fields, shape, period):
+        super(PeriodicQuery, self).__init__(qry, fields)
+        self._native = native.dynamo.genper(fields)
+        self._period = datetime.timedelta(seconds=(period-self.vicinity))
+        now = datetime.datetime.utcnow()
+        self._next = now+self._period
+        self._prevstamp = mkstamp(now) 
+        self._sources = set()
+        self._seconds = []
+        
     def is_live(self):
         return True
+
+    def addsource(self, src):
+        if not self._native.matchsource(src.ip): return
+        self._sources.add(src)
+        _, _, sec = src.getcollectors()
+        self._seconds.append(sec)
+
+    def on_time(self, qbuf, now, stamp):
+        if self._next > now: return
+        self._next = now + self._period
+        
+        self._native.runseconds(qbuf._native, self._seconds, self._prevstamp)
+
+        self._prevstamp = stamp
+        
+        self._report()
+
+    def _report(self):
+        self
 
 class FlowQuery(Query):
     

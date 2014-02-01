@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, pprint
+import zmq, datetime, pprint, time
 
 from zmq.eventloop import ioloop
 ioloop.install()
@@ -17,7 +17,11 @@ class FlowProc(connector.Connection):
     def __init__(self, receiver):
         self._addresses = {}
         self._long_queries = {}
+        self._periodic = {}
         self._nreceiver = receiver
+        self._nbuf = native.query.QueryBuffer()
+        
+        receiver.sourcecallback(self.onnewsource)
 
     def _send(self, addr, res):
         res = zmq.utils.jsonapi.dumps(res)
@@ -36,9 +40,18 @@ class FlowProc(connector.Connection):
         # check for expired peers
         now = datetime.datetime.utcnow()
         self._check_peers(now)
-
+        
+        stamp = native.query.mkstamp(now)
         for source in self._nreceiver.sources():
-            source.on_time(now)
+            source.on_time(stamp)
+            
+        for per in self._periodic.values():
+            per.on_time(self._nbuf, now, stamp)
+
+    def onnewsource(self, src):
+        print "created %s"%(src.name)
+        for per in self._periodic.values():
+            per.addsource(src)
 
     def on_msg(self, msg):
         req = msg[1]
@@ -99,7 +112,13 @@ class FlowProc(connector.Connection):
                 def onmsg(msg):
                     for addr in qrec.aset:
                         self.send_multipart([addr, msg])
-                self._nreceiver.register(q, onmsg)
+                self._nreceiver.registerraw(q, onmsg)
+                
+            if type(q) == querymod.PeriodicQuery:
+                self._periodic[q.id] = q
+                for src in self._nreceiver.sources():
+                    q.addsource(src)
+                
         qrec.aset.add(addr)
         
     def _check_peers(self, now):
@@ -116,8 +135,12 @@ class FlowProc(connector.Connection):
                         del self._long_queries[qid]
                         q = qrec.query
                         logger.dump("dropping query %s"%(q.value()))
+                        
                         if type(q) == querymod.RawQuery:
-                            self._nreceiver.unregister(qid)
+                            self._nreceiver.unregisterraw(qid)
+                            
+                        if type(q) == querymod.PeriodicQuery:
+                            del self._periodic[qid]
 
 class QRecord(object):
     def __init__(self, q):

@@ -73,7 +73,8 @@ cdef class Receiver(object):
             self._onflows(flows, hlen-sizeof(ipfix_template_set_header))
 
         return
-    
+
+    @cython.boundscheck(False)
     cdef void _onflows(self, const ipfix_flow* inflow, int bytes):
         cdef int count = bytes/sizeof(ipfix_flow)
         cdef ipfix_flow_tuple ftup
@@ -142,6 +143,7 @@ cdef class Receiver(object):
             inflow += 1
             count -= 1
             
+    @cython.boundscheck(False)
     cdef void onqueries(self, const ipfix_flow* flow):
         cdef RawQuery next
         cdef RawQuery q = self.first
@@ -150,13 +152,15 @@ cdef class Receiver(object):
             q.onflow(flow)
             q = q.next
         
+    @cython.boundscheck(False)
     def register(self, RawQuery q):
         q.next = self.first
         q.prev = None
         self.first = q
         if q.next is not None:
             q.next.prev = q
-            
+    
+    @cython.boundscheck(False)
     def unregister(self, RawQuery q):
         cdef RawQuery next = q.next
         if next is not None:
@@ -168,6 +172,7 @@ cdef class Receiver(object):
         else:
             self.first = next
 
+@cython.boundscheck(False)
 cdef void convertflow(const ipfix_flow* inflow, ipfix_flow* outflow) nogil:
     outflow.bytes = ntohl(inflow.bytes)
     outflow.packets = ntohl(inflow.packets)
@@ -189,6 +194,7 @@ cdef void convertflow(const ipfix_flow* inflow, ipfix_flow* outflow) nogil:
     outflow.first = ntohl(inflow.first)
     outflow.exporter = ntohl(inflow.exporter)
     
+@cython.boundscheck(False)
 cdef void copyflow(const ipfix_flow* flow, ipfix_flow_tuple* ftup) nogil:
     ftup.protocol = flow.protocol
     ftup.srcport = flow.srcport
@@ -196,6 +202,7 @@ cdef void copyflow(const ipfix_flow* flow, ipfix_flow_tuple* ftup) nogil:
     ftup.dstport = flow.dstport
     ftup.dstaddr = flow.dstaddr
     
+@cython.boundscheck(False)
 cdef void copyattr(const ipfix_flow* flow, ipfix_attributes* atup) nogil:
     atup.tos = flow.tos
     atup.tcpflags = flow.tcpflags

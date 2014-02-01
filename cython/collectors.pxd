@@ -1,5 +1,6 @@
 
 from common cimport *
+from nquery cimport PeriodicQuery, QueryBuffer
 
 cdef class Collector(object):
     cdef unsigned char* entryset
@@ -34,6 +35,7 @@ cdef class AttrCollector(Collector):
 
 cdef class SecondsCollector(object):
     cdef _name
+    cdef uint32_t _ip
     cdef _counters
     cdef ipfix_store_counts* _counterset
     cdef ipfix_store_counts* _last
@@ -43,6 +45,7 @@ cdef class SecondsCollector(object):
     cdef uint32_t _count
     cdef uint32_t _depth
     cdef uint32_t [:] _seconds
+    cdef uint64_t [:] _stamps
     cdef uint32_t _currentsec
     cdef FlowCollector _flows
 	
@@ -50,4 +53,4 @@ cdef class SecondsCollector(object):
     cdef void _alloc(self, uint32_t size)
     cdef void _grow(self)
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos)
-    
+    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp) nogil

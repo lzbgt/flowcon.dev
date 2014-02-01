@@ -14,6 +14,9 @@ colmod = native.loadmod('collectors')
 class Receiver(object):
 
     def __init__(self, addr, ioloop):
+        self.allsources = {}
+        self._onsource = None
+        
         p = urlparse.urlsplit(addr)
         if not p.scheme or p.scheme.lower() != 'udp':
             raise Exception("Only udp scheme is supported for flow reception. Got '%s'"%(addr))
@@ -26,7 +29,7 @@ class Receiver(object):
         sock.bind((p.hostname, p.port))
         self._sock = sock
 
-        self._nreceiver = recmod.Receiver(Sources)
+        self._nreceiver = recmod.Receiver(self)
         self._queries = {}
         
         ioloop.add_handler(sock.fileno(), self._recv, ioloop.READ)
@@ -35,39 +38,41 @@ class Receiver(object):
         data, addr = self._sock.recvfrom(2048); addr
         self._nreceiver.receive(data, len(data))
         
+    def find(self, ip):
+        src = self.allsources.get(ip, None)
+        if src is None:
+            src = Sources(ip)
+            self.allsources[ip] = src
+            if self._onsource: self._onsource(src)
+
+        return src.getcollectors()
+        
+    def sourcecallback(self, callback):
+        self._onsource = callback
+        
     def sources(self):
-        return Sources.allsources.values()
+        return self.allsources.values()
     
-    def register(self, q, onmsg):
+    def registerraw(self, q, onmsg):
         qnat = self._queries.get(q.id, None)
         if qnat: # old query?
             # re-register in case onmsg is changed
-            self.unregister(q.id)
+            self.unregisterraw(q.id)
         qnat = q.native
         self._queries[q.id] = qnat
         qnat.setcallback(onmsg)
         self._nreceiver.register(qnat)
         
-    def unregister(self, qid):
+    def unregisterraw(self, qid):
         qnat = self._queries.get(qid, None)
         if qnat:
             self._nreceiver.unregister(qnat)
-
+            
 class Sources(object):
-    allsources = {}
     maxseconds = 3600
 
-    @classmethod
-    def find(cls, ip):
-        src = cls.allsources.get(ip, None)
-        if src is None:
-            src = cls(ip)
-            cls.allsources[ip] = src
-            print "created %s"%(src.name)
-
-        return src._flows, src._attrs, src._seconds
-    
     def __init__(self, ip):
+        self._ip = ip
         nm = ''
         for _ in range(4):
             nm = ('%d.'%(ip & 0xFF))+nm 
@@ -75,17 +80,24 @@ class Sources(object):
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._seconds = colmod.SecondsCollector("S:"+self._name, self._flows, self.maxseconds)
+        self._seconds = colmod.SecondsCollector("S:"+self._name, ip, self._flows, self.maxseconds)
         
-    @property
-    def name(self):
-        return self._name
-
+    def getcollectors(self):
+        return self._flows, self._attrs, self._seconds
+        
     def address(self):
         return self.name
     
     def stats(self):
         return {}
 
-    def on_time(self, now):
-        self._seconds.onsecond()
+    def on_time(self, stamp):
+        self._seconds.onsecond(stamp)
+        
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def ip(self):
+        return self._ip

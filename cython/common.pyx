@@ -92,3 +92,24 @@ cdef extern from "ipfix.h":
         long    flowindex
         long    bytes
         long    packets
+        
+    cdef struct ipfix_query_info:
+        const ipfix_store_counts*      first
+        long                           count
+        const ipfix_store_flow*        flows
+        const ipfix_store_attributes*  attrs
+
+    cdef struct ipfix_query_buf:
+        void*   data
+        long    count
+
+    cdef struct ipfix_query_pos:
+        long    bufpos
+        long    countpos
+        
+    ctypedef void (*ipfix_collector_call_t)(const ipfix_query_buf* buf, 
+                                            const ipfix_query_info* info,
+                                            ipfix_query_pos* poses,
+                                            uint32_t expip) nogil
+
+    ctypedef void (*ipfix_collector_report_t)(const ipfix_query_buf* buf) nogil

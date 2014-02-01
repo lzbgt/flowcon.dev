@@ -96,4 +96,28 @@ typedef struct PACKED ipfix_store_counts {
 	uint32_t			packets;
 } ipfix_store_counts_t;
 
+typedef struct PACKED ipfix_query_buf {
+	void*				data;
+	uint32_t 			count;
+} ipfix_query_buf_t;
+
+typedef struct PACKED ipfix_query_pos {
+	uint32_t 			bufpos;
+	uint32_t 			countpos;
+} ipfix_query_pos_t;
+
+typedef struct PACKED ipfix_query_info {
+	const ipfix_store_counts_t* 	first;
+	uint32_t 				  		count;
+	const ipfix_store_flow_t* 		flows;
+	const ipfix_store_attributes_t* attrs;
+} ipfix_query_info_t;
+
+typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
+									   const ipfix_query_info_t* info,
+									   ipfix_query_pos_t* poses,
+									   uint32_t expip);
+
+typedef void (*ipfix_collector_report_t)(const ipfix_query_buf_t* buf);
+
 #endif /* FLOW_IPFIX_H_ */

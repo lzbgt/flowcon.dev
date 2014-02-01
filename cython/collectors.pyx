@@ -11,6 +11,7 @@ cimport numpy as np
 
 from common cimport *
 from misc cimport logger, showflow, showattr
+from nquery cimport PeriodicQuery
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
 
@@ -27,12 +28,14 @@ def _dummy():
 
 cdef class SecondsCollector(object):
 
-    def __init__(self, nm, FlowCollector flows, uint32_t secondsdepth):
+    def __init__(self, nm, uint32_t ip, FlowCollector flows, uint32_t secondsdepth):
         cdef uint32_t pos
         self._name = nm
+        self._ip = ip
         self._flows = flows
         self._depth = secondsdepth
         self._seconds = np.zeros(secondsdepth, dtype=np.uint32)
+        self._stamps = np.zeros(secondsdepth, dtype=np.uint64)
         
         for pos in range(secondsdepth):
             self._seconds[pos] = INVALID
@@ -46,6 +49,7 @@ cdef class SecondsCollector(object):
         self._first = self._counterset
         self._last = self._counterset
 
+    @cython.boundscheck(False)
     cdef void _alloc(self, uint32_t size):
         self._counters = np.zeros((size, sizeof(ipfix_store_counts)), dtype=np.uint8)
         cdef np.ndarray[np.uint8_t, ndim=2] arr
@@ -54,6 +58,7 @@ cdef class SecondsCollector(object):
         self._maxcount = size
         self._end = self._counterset + self._maxcount
         
+    @cython.boundscheck(False)    
     cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex):
         cdef ipfix_store_counts* last
         
@@ -74,6 +79,7 @@ cdef class SecondsCollector(object):
 
         self._count += 1
 
+    @cython.boundscheck(False)
     cdef void _grow(self):
         cdef uint32_t pos, secpos, offset, startsz, newsize = <uint32_t>(self._maxcount*growthrate)
         cdef ipfix_store_counts* start = self._counterset
@@ -119,7 +125,7 @@ cdef class SecondsCollector(object):
         del oldcounters     # not needed; just in case
         
     @cython.boundscheck(False)
-    def onsecond(self):
+    def onsecond(self, uint64_t stamp):
         cdef uint32_t newpos, next
         cdef uint32_t current = self._currentsec
         
@@ -135,7 +141,74 @@ cdef class SecondsCollector(object):
         
         newpos = <uint32_t>(((<uint64_t>self._last) - (<uint64_t>self._counterset))/sizeof(ipfix_store_counts))
         self._seconds[current] = newpos
+        self._stamps[current] = stamp
         self._currentsec = current
+    
+    @cython.boundscheck(False)
+    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp) nogil:
+        cdef uint32_t secpos = self._currentsec
+        cdef uint32_t prevpos, oldestpos, lastpos = self._seconds[secpos]
+        cdef uint64_t prevstamp, stamp = self._stamps[secpos]
+
+        if stamp <= oldeststamp: return     # current or future seconds are not available yet
+
+        # seconds may not be evenly distributed; lets jump to approximate location and then lookup
+        cdef uint64_t seconds = stamp - oldeststamp
+        if secpos < seconds:
+            if seconds >= self._depth:
+                secpos += 1 # just get oldest we have
+                if secpos >= self._depth: secpos = 0
+            secpos = self._depth + secpos - seconds
+        else:
+            secpos -= seconds
+        
+        stamp = self._stamps[secpos]
+        if stamp <= oldeststamp:
+            # look forward; we will find something >= oldeststamp for sure since current stamp is bigger
+            while stamp < oldeststamp:
+                secpos += 1
+                if secpos >= self._depth: secpos = 0
+                stamp = self._stamps[secpos]
+        else:
+            # look backward; stamp is too big let's find something smaller then oldeststamp
+            prevpos = secpos   # to avoid compiler warning
+            while stamp >= oldeststamp:
+                prevpos = secpos
+                if secpos == 0: secpos = self._depth
+                secpos -= 1
+                prevstamp = stamp
+                stamp = self._stamps[secpos]
+                # go back only until stamps are decreasing
+                # need this in case if oldeststamp is older than anything we have
+                if stamp >= prevstamp: break
+            secpos = prevpos               # this is last known good position
+            
+        # here we have secpos pointing to proper position where we need to start collection
+
+        cdef ipfix_store_flow* flows = <ipfix_store_flow*>self._flows.entryset
+        cdef ipfix_store_attributes* attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
+        
+        cdef ipfix_query_info qinfo
+        
+        qinfo.flows = <ipfix_store_flow*>self._flows.entryset
+        qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
+        
+        oldestpos = self._seconds[secpos]
+        if lastpos >= oldestpos:  # one chunk of data
+            if lastpos > oldestpos:
+                qinfo.first = self._counterset+oldestpos
+                qinfo.count = lastpos-oldestpos
+                q.collect(bufinfo, cython.address(qinfo), self._ip)
+        else:
+            # two chunks of data
+            # collect older
+            qinfo.first = self._counterset+oldestpos
+            qinfo.count = self._depth-oldestpos
+            q.collect(bufinfo, cython.address(qinfo), self._ip)
+            # collect newer
+            qinfo.first = self._counterset
+            qinfo.count = lastpos
+            q.collect(bufinfo, cython.address(qinfo), self._ip)
         
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos):
         cdef ipfix_store_counts* start
@@ -171,6 +244,7 @@ cdef class Collector(object):
         self._indices = np.zeros(1, dtype=np.dtype('u4'))
         self._resz(size)
         
+    @cython.boundscheck(False)
     cdef int _resz(self, int size):
         cdef int bits = int(np.math.log(2*size-1, 2))
         cdef int indsize = 2**bits
@@ -192,6 +266,7 @@ cdef class Collector(object):
             return True
         return False
 
+    @cython.boundscheck(False)
     cdef uint32_t _add(self, const void* ptr, uint32_t index, int dsize):
         cdef uint32_t crc, pos, ind, lastpos
         cdef ipfix_store_entry* entryrec
@@ -235,6 +310,7 @@ cdef class Collector(object):
         
         return pos
 
+    @cython.boundscheck(False)
     cdef uint32_t _findnewpos(self, uint32_t sz):
         cdef uint32_t pos = self.freepos
         cdef ipfix_store_entry* entryrec
@@ -251,10 +327,12 @@ cdef class Collector(object):
         self.end += 1
         return pos
     
+    @cython.boundscheck(False)
     cdef void _grow(self):
         cdef uint32_t size = <uint32_t>(self.maxentries*growthrate)
         self._resize(size)
 
+    @cython.boundscheck(False)
     cdef void _resize(self, uint32_t size):
         cdef uint32_t count = self.end
         cdef int sz = self._width
@@ -277,6 +355,7 @@ cdef class Collector(object):
             entry.next = iset[ind]
             iset[ind] = pos
     
+    @cython.boundscheck(False)
     cdef void _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz):
         cdef ipfix_store_entry* prevrec
         cdef uint32_t ind, prevpos
@@ -301,6 +380,7 @@ cdef class Collector(object):
         self.freepos = pos
         self.freecount += 1
     
+    @cython.boundscheck(False)
     cdef ipfix_store_entry* _get(self, int pos):
         return <ipfix_store_entry*>(self.entryset+pos*self._width)
 
@@ -310,6 +390,7 @@ cdef class Collector(object):
     def indices(self):
         return self._indices.view(dtype='u4')
     
+    @cython.boundscheck(False)
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index):
         pass
     
@@ -325,6 +406,7 @@ cdef class FlowCollector(Collector):
                        ('flow',     'a%d'%sizeof(flow.flow)),
                        ('attrindex','u%d'%sizeof(flow.attrindex))]
 
+    @cython.boundscheck(False)
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index):
         cdef ipfix_store_attributes* prev, *curr
         cdef ipfix_store_flow* flowrec = <ipfix_store_flow*>entry
@@ -342,6 +424,7 @@ cdef class FlowCollector(Collector):
                                                                      showattr(cython.address(curr.attributes))))
             flowrec.attrindex = index
 
+    @cython.boundscheck(False)
     cdef void remove(self, const ipfix_store_counts* counts, uint32_t num):
         cdef unsigned char* eset = self.entryset
         cdef int sz = self._width
@@ -376,6 +459,7 @@ cdef class FlowCollector(Collector):
         if maxindex > 0:            # something was actually deleted
             self._shrink(maxindex)    # try to shrink
         
+    @cython.boundscheck(False)
     cdef void _shrink(self, uint32_t maxpos):
         cdef uint32_t newsize
         cdef uint32_t last = self.end-1

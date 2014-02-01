@@ -23,13 +23,14 @@ class Builder(object):
         self.loc = os.path.join(self.top, 'gen')
         self.incs = os.path.join(self.top, '..', 'includes')
 
-    def build(self, cls, fields):
-        qid, css, lss, s = validate(fields)
-        fname = os.path.join(self.loc, 'Q_%s.c'%(qid))
-        mname = 'Q_'+qid
+    def build(self, vres, gensource, cls, pref):
+        qid, css, lss, s = vres
+        mname = '%s_%s'%(pref, qid)
+        fname = os.path.join(self.loc, '%s.c'%(mname))
         modfile = os.path.join(self.loc, mname+'.so')
         if not os.path.isfile(modfile):
-            gensource(fname, qid, css, lss, s)
+            with open(fname, 'w') as f:
+                gensource(f, qid, css, lss, s)
             build(self.incs, self.loc, fname, qid, mname)
         
         return cls(os.path.join(self.loc, modfile), qid)
@@ -40,12 +41,17 @@ def main():
     fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
     #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
 
-    rq = dynbuilder.build(qmod.RawQuery, fields)
+    rq = genper(fields)
     
     rq.testflow(0x01020406)
 
 def genraw(fields):
-    return dynbuilder.build(qmod.RawQuery, fields)
+    vres = validate(fields)
+    return dynbuilder.build(vres, genrawsource, qmod.RawQuery, fields, 'R')
+
+def genper(fields):
+    vres = validate(fields)
+    return dynbuilder.build(vres, genpersource, qmod.PeriodicQuery, fields, 'P')
 
 def validate(fields):
     lss = set()
@@ -86,60 +92,93 @@ def validate(fields):
     qid = sha.hexdigest()
     return qid, css, lss, s
     
-def gensource(fname, qid, css, lss, s):
-    with open(fname, 'w') as f:
-        writehead(f, s)
-        # fields to filter flows with
-        # If these fields no not match with given flow then flow is discarded
-        f.write("int fcheck_%s(const ipfix_flow_t* flow){\n"%(qid))
-        for fk in sorted(css.keys()):
-            lns = css[fk]
-            if len(lns) == 1:
-                ln = lns[0]
-                if ln:
-                    f.write("    if (%s) { return 0; }\n"%(ln))
-            elif len(lns) > 1:
-                s = "    if ("
-                f.write(s)
-                for ln in lns[:-1]:
-                    if not ln: continue
-                    f.write('(%s)'%(ln))
-                    f.write(' &&\n')
-                    f.write(' '*len(s))
-                f.write("(%s)) { return 0; }\n"%(lns[-1]))
-        f.write("    return 1;\n")
-        f.write("}\n")
-        f.write("\n")
-        iptypes = []
-        for ftype in lss:
-            if type(ftype) == query.ntypes.IPType:
-                if not iptypes: writefromip(f)
-                iptypes.append(ftype)
+def wfunchead(f, qid, fn, *args):
+    s = "%s_%s("%(fn, qid)
+    f.write(s)
+    off = ' '*len(s)
+    if len(args) > 0:
+        for a in args[:-1]:
+            f.write("%s, \n%s"%(a, off))
+        f.write("%s){\n"%(args[-1]))
+    
+def genpersource(f, qid, css, lss, s):
+    "remove field 130 from checker and add static value to filler"
+    """
+        fcheck_
+        freport_
+        fexporter_
+        fwidth_    
+    """
+    writehead(f, s)
+    wfunchead(f, qid, 'int fexporter', "uint32_t ip")
+    
+    f.write("    return 1;\n")
+    f.write("}\n")
+    f.write("\n")
 
-        f.write("void freport_%s(const ipfix_flow_t* flow, char* buf, size_t size){\n"%(qid))
+    wfunchead(f, qid, 'void fcheck', "const ipfix_query_buf_t* buf",
+                                     "const ipfix_query_info_t* info",
+                                     "ipfix_query_pos_t* poses",
+                                     "uint32_t expip")
+    f.write("}\n")
+    f.write("\n")
+    
+def wcondition(f, lns):
+    if len(lns) == 1:
+        ln = lns[0]
+        if ln:
+            f.write("    if (%s) { return 0; }\n"%(ln))
+    elif len(lns) > 1:
+        s = "    if ("
+        f.write(s)
+        for ln in lns[:-1]:
+            if not ln: continue
+            f.write('(%s)'%(ln))
+            f.write(' &&\n')
+            f.write(' '*len(s))
+        f.write("(%s)) { return 0; }\n"%(lns[-1]))
+    
+def genrawsource(f, qid, css, lss, s):
+    writehead(f, s)
+    # fields to filter flows with
+    # If these fields no not match with given flow then flow is discarded
+    f.write("int fcheck_%s(const ipfix_flow_t* flow){\n"%(qid))
+    for fk in sorted(css.keys()):
+        lns = css[fk]
+        wcondition(f, lns)
+    f.write("    return 1;\n")
+    f.write("}\n")
+    f.write("\n")
+    iptypes = []
+    for ftype in lss:
+        if type(ftype) == query.ntypes.IPType:
+            if not iptypes: writefromip(f)
+            iptypes.append(ftype)
 
-        if iptypes:
-            for ftype in lss:
-                f.write("    char ip_%s[100];\n"%(ftype.name))
-        form = ''
-        vals = []
-        sep = ''
+    f.write("void freport_%s(const ipfix_flow_t* flow, char* buf, size_t size){\n"%(qid))
+
+    if iptypes:
         for ftype in lss:
-            if type(ftype) == query.ntypes.IPType:
-                vals.append('fromip(flow->%s, ip_%s, sizeof(ip_%s))'%(ftype.name, ftype.name, ftype.name))
-                form += sep+'\\"%s\\"'
-            else:
-                vals.append('flow->%s'%(ftype.name))
-                form += sep+'\\"%d\\"'
-            sep = ', '
-        pref = "    snprintf(buf, size, "
-        off = ' '*len(pref)
-        f.write('%s"[[%s],[%%d,%%d]]", \n'%(pref, form))
-        for v in vals:
-            f.write('%s%s,\n'%(off, v))
-        f.write('%sflow->bytes, flow->packets);\n'%(off))
-        f.write("}\n")
-        writetail(f)
+            f.write("    char ip_%s[100];\n"%(ftype.name))
+    form = ''
+    vals = []
+    sep = ''
+    for ftype in lss:
+        if type(ftype) == query.ntypes.IPType:
+            vals.append('fromip(flow->%s, ip_%s, sizeof(ip_%s))'%(ftype.name, ftype.name, ftype.name))
+            form += sep+'\\"%s\\"'
+        else:
+            vals.append('flow->%s'%(ftype.name))
+            form += sep+'\\"%d\\"'
+        sep = ', '
+    pref = "    snprintf(buf, size, "
+    off = ' '*len(pref)
+    f.write('%s"[[%s],[%%d,%%d]]", \n'%(pref, form))
+    for v in vals:
+        f.write('%s%s,\n'%(off, v))
+    f.write('%sflow->bytes, flow->packets);\n'%(off))
+    f.write("}\n")
+    writetail(f)
     return qid
 
 def writefromip(f):
