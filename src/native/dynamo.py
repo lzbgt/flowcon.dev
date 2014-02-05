@@ -38,6 +38,7 @@ class Builder(object):
 dynbuilder = Builder()
     
 def main():
+    #fields = {'8': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
     fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
     #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
 
@@ -47,35 +48,198 @@ def main():
 
 def genraw(fields):
     vres = validate(fields)
-    return dynbuilder.build(vres, genrawsource, qmod.RawQuery, fields, 'R')
+    return dynbuilder.build(vres, genrawsource, qmod.RawQuery, 'R')
 
 def genper(fields):
-    vres = validate(fields)
-    return dynbuilder.build(vres, genpersource, qmod.PeriodicQuery, fields, 'P')
+    expnm = '130'
+    exporter = fields.get(expnm, None)
+    lss = set()
+    if exporter is not None:
+        #for k, v in fields
+        flds = fields.copy()
+        del flds[expnm]
+        s = json.dumps((expnm, exporter))
+        cs = valfield(expnm, exporter, '', lss)
+        vres = validate(flds)
+    else:
+        s = ''
+        cs = []
+        vres = validate(fields)
 
+    def gensource(*args):
+        genpersource(cs, lss, s, *args)
+    
+    return dynbuilder.build(vres, gensource, qmod.PeriodicQuery, 'P')
+
+   
+def genpersource(explns, explss, exps, f, qid, css, lss, s):
+    "remove field 130 from checker and add static value to filler"
+    """
+        fcheck_
+        freport_
+        fexporter_
+        fwidth_    
+    """
+    writehead(f, s+exps)
+    
+    colltypename = 'Collection'
+    
+    f.write("typedef struct PACKED {\n")
+    
+    flownames = []
+    attrnames = []
+    expnames = []
+    
+    for ftype in lss:
+        if ftype in query.Query.specialtuple:
+            continue
+        f.write("    uint%d_t %s;\n"%(ftype.size*8, ftype.name))
+        if ftype in query.Query.flowtuple:
+            flownames.append(ftype.name)
+        else:
+            attrnames.append(ftype.name)
+
+    for expftype in explss:
+        f.write("    uint%d_t %s;\n"%(expftype.size*8, expftype.name))
+        expnames.append(expftype.name)
+
+    f.write("} Values;\n")
+
+    writestructs(f, qid, colltypename)
+
+    writelocalhead(f, 'int check_flow_tuple', 'const ipfix_flow_tuple_t* tup');
+    writecheckerend(f);
+    
+    writelocalhead(f, 'int check_flow_attr', 'const ipfix_attributes_t* attr');
+    writecheckerend(f);
+    
+    writelookup(f, colltypename)
+        
+    wfunchead(f, qid, 'int fexporter', "uint32_t exporter")
+    wcondition(f, explns)
+    writecheckerend(f);
+
+    wfunchead(f, qid, 'void fcheck', "const ipfix_query_buf_t* buf",
+                                     "const ipfix_query_info_t* info",
+                                     "ipfix_query_pos_t* poses",
+                                     "uint32_t exporter")
+    f.write("    %s* collect;\n    Values vals;\n"%(colltypename))
+    f.write("    const ipfix_store_counts_t* counters = info->first+poses->countpos;\n")
+    if flownames or attrnames:
+        f.write("    const ipfix_store_flow_t* firstflow = info->flows;\n")
+        if attrnames:
+            f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
+    f.write("\n")
+    if not flownames and not attrnames and not expnames:
+        wlookupcall(f, "    ")
+    
+    f.write("""    while(poses->countpos < info->count){\n""")
+    if flownames or attrnames:
+        f.write("        const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;\n")
+        if attrnames:
+            f.write("        const ipfix_attributes_t* attr = &((firstattr + flowentry->attrindex)->attributes);\n")
+        if flownames:
+            f.write("        const ipfix_flow_tuple_t* flow = &flowentry->flow;\n")
+        f.write("\n")
+        if flownames and attrnames:
+            f.write("        if(check_flow_tuple(flow) && check_flow_attr(attr))")
+        elif flownames:
+            f.write("        if(check_flow_tuple(flow))")
+        else:
+            f.write("        if(check_flow_attr(attr))")
+    else:
+        f.write("        ")
+    f.write("{\n")
+    if flownames or attrnames or expnames:
+        for nm in flownames:
+            f.write("            vals.%s = flow->%s;\n"%(nm, nm))
+        for nm in attrnames:
+            f.write("            vals.%s = attr->%s;\n"%(nm, nm))
+        for nm in expnames:
+            f.write("            vals.%s = %s;\n"%(nm, nm))
+        wlookupcall(f, "            ")
+    f.write("""
+            collect->bytes += counters->bytes;
+            collect->packets = counters->packets;
+        }
+
+        poses->countpos++;
+    }\n""")
+    f.write("}\n")
+    f.write("\n")
+
+def wlookupcall(f, off):
+    f.write("""
+%scollect = lookup(buf, &vals, poses);
+%sif(collect == NULL){
+%s    return;
+%s}"""%(off, off, off, off))
+
+def writelookup(f,  nm):
+    writelocalhead(f, '%s* lookup'%(nm), 
+                   'const ipfix_query_buf_t* buf, const Values* vals, ipfix_query_pos_t* poses');
+    f.write('    %s* collect = (%s*)buf->data;\n'%(nm, nm))
+    f.write("\n")
+    f.write('    poses->bufpos++;\n')
+    f.write('    if(poses->bufpos >= buf->count){\n')
+    f.write('        return 0;\n')
+    f.write("    }\n")
+    f.write("    return collect;\n")
+    f.write("}\n")
+    f.write("\n")
+
+def writestructs(f, qid, nm):
+    f.write("""
+typedef struct PACKED %s_t %s;
+
+struct PACKED %s_t{
+    %s*     next;
+    Values          values;
+    uint64_t        bytes;
+    uint64_t        packets;
+};
+    """%(nm, nm, nm, nm))
+    f.write("\n")
+    f.write('uint32_t fwidth_%s = sizeof(%s);\n'%(qid, nm))
+    f.write("\n")
+
+
+def writelocalhead(f, nm, arg):
+    f.write("static inline %s(%s){\n"%(nm, arg))
+
+def writecheckerend(f):
+    f.write("    return 1;\n")
+    f.write("}\n")
+    f.write("\n")
+
+def valfield(fk, fv, pref, lss):
+    ftype = query.ntypes.Type.all.get(fk, None)
+    if ftype is None:
+        raise Exception("Don't know what to do with field %s."%(fk))
+
+    if isone(fv):
+        fv = fv.strip()            
+        if fv == '*': 
+            lss.add(ftype)
+            return []
+        return [_mkone(pref, ftype, fv)]
+    else:
+        ss = set()
+        for v in fv:
+            v = v.strip()                
+            if v == '*':
+                lss.add(ftype)
+            else:
+                ss.add(_mkone(pref, ftype, v))
+        return sorted(ss)
+            
 def validate(fields):
     lss = set()
     css = {}
+    pref = 'flow->'
     for fk, fv in fields.items():
-        ftype = query.ntypes.Type.all.get(fk, None)
-        if ftype is None:
-            raise Exception("Don't know what to do with field %s."%(fk))
-
-        if isone(fv):
-            fv = fv.strip()            
-            if fv == '*': 
-                lss.add(ftype)
-            else:
-                css[fk] = [_mkone(ftype, fv)]
-        else:
-            ss = set()
-            for v in fv:
-                v = v.strip()                
-                if v == '*':
-                    lss.add(ftype)
-                else:
-                    ss.add(_mkone(ftype, v))
-            css[fk] = sorted(ss)
+        cs = valfield(fk, fv, pref, lss)
+        if cs: css[fk] = cs
 
     # all fields we need to consider for aggregation
     # (except counters fields) and report, i.e. all `*` fields
@@ -100,28 +264,6 @@ def wfunchead(f, qid, fn, *args):
         for a in args[:-1]:
             f.write("%s, \n%s"%(a, off))
         f.write("%s){\n"%(args[-1]))
-    
-def genpersource(f, qid, css, lss, s):
-    "remove field 130 from checker and add static value to filler"
-    """
-        fcheck_
-        freport_
-        fexporter_
-        fwidth_    
-    """
-    writehead(f, s)
-    wfunchead(f, qid, 'int fexporter', "uint32_t ip")
-    
-    f.write("    return 1;\n")
-    f.write("}\n")
-    f.write("\n")
-
-    wfunchead(f, qid, 'void fcheck', "const ipfix_query_buf_t* buf",
-                                     "const ipfix_query_info_t* info",
-                                     "ipfix_query_pos_t* poses",
-                                     "uint32_t expip")
-    f.write("}\n")
-    f.write("\n")
     
 def wcondition(f, lns):
     if len(lns) == 1:
@@ -223,25 +365,26 @@ def ipvariations(value):
 def writehead(f, s):
     f.write('#include <stdint.h>\n')
     f.write('#include <stdio.h>\n')
+    f.write('#include <zlib.h>\n')
     f.write('#include "ipfix.h"\n')
     f.write("\n")
     f.write('/*\n %s \n*/'%(s))
     f.write("\n")
 
-def _mkone(ftype, v):
+def _mkone(pref, ftype, v):
     if type(ftype) == query.ntypes.IPType:
         res = ipvariations(v)
         if res is None: # check exact value match
             try:
-                return "flow->%s != 0x%x"%(ftype.name, ftype.convert(v))
+                return "%s%s != 0x%x"%(pref, ftype.name, ftype.convert(v))
             except:
                 raise Exception("Expected IP got '%s'"%(v))
         if not res:     # any will match
             return ""
         mn, mx = res
-        return "flow->%s < 0x%x || flow->%s > 0x%x"%(ftype.name, mn, ftype.name, mx)
+        return "%s%s < 0x%x || %s%s > 0x%x"%(pref, ftype.name, mn, pref, ftype.name, mx)
     
-    return "flow->%s != 0x%x"%(ftype.name, toint(v)) 
+    return "%s%s != 0x%x"%(pref, ftype.name, toint(v)) 
 
 def writetail(f):
     f.write('\n')
