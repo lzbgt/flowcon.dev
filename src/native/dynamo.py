@@ -37,15 +37,6 @@ class Builder(object):
     
 dynbuilder = Builder()
     
-def main():
-    #fields = {'8': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
-    fields = {'130': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
-    #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
-
-    rq = genper(fields)
-    
-    rq.testflow(0x01020406)
-
 def genraw(fields):
     vres = validate(fields)
     return dynbuilder.build(vres, genrawsource, qmod.RawQuery, 'R')
@@ -73,13 +64,6 @@ def genper(fields):
 
    
 def genpersource(explns, explss, exps, f, qid, css, lss, s):
-    "remove field 130 from checker and add static value to filler"
-    """
-        fcheck_
-        freport_
-        fexporter_
-        fwidth_    
-    """
     writehead(f, s+exps)
     
     colltypename = 'Collection'
@@ -106,15 +90,28 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
     f.write("} Values;\n")
 
     writestructs(f, qid, colltypename)
+    
+    f.write('#include "flowgen.h"\n\n')
+    
+    flowchecks = {}
+    attrchecks = {}
+    for ck, cv in css.items():
+        ftype = query.ntypes.Type.all.get(ck, None)
+        if not ftype: continue
+        if ftype in query.Query.specialtuple: continue
+        if ftype in query.Query.flowtuple:
+            flowchecks[ck] = cv
+        else:
+            attrchecks[ck] = cv
 
-    writelocalhead(f, 'int check_flow_tuple', 'const ipfix_flow_tuple_t* tup');
-    writecheckerend(f);
+    if flowchecks:
+        writelocalhead(f, 'int check_flow_tuple', 'const ipfix_flow_tuple_t* entry');
+        wcondgroup(f, flowchecks)
+
+    if attrchecks:
+        writelocalhead(f, 'int check_flow_attr', 'const ipfix_attributes_t* entry');
+        wcondgroup(f, attrchecks)
     
-    writelocalhead(f, 'int check_flow_attr', 'const ipfix_attributes_t* attr');
-    writecheckerend(f);
-    
-    writelookup(f, colltypename)
-        
     wfunchead(f, qid, 'int fexporter', "uint32_t exporter")
     wcondition(f, explns)
     writecheckerend(f);
@@ -134,19 +131,21 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
         wlookupcall(f, "    ")
     
     f.write("""    while(poses->countpos < info->count){\n""")
-    if flownames or attrnames:
+    if flownames or attrnames or flowchecks or attrchecks:
         f.write("        const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;\n")
-        if attrnames:
+        if attrnames or attrchecks:
             f.write("        const ipfix_attributes_t* attr = &((firstattr + flowentry->attrindex)->attributes);\n")
-        if flownames:
+        if flownames or flowchecks:
             f.write("        const ipfix_flow_tuple_t* flow = &flowentry->flow;\n")
         f.write("\n")
-        if flownames and attrnames:
+        if flowchecks and attrchecks:
             f.write("        if(check_flow_tuple(flow) && check_flow_attr(attr))")
-        elif flownames:
+        elif flowchecks:
             f.write("        if(check_flow_tuple(flow))")
-        else:
+        elif attrchecks:
             f.write("        if(check_flow_attr(attr))")
+        else:
+            f.write("        ")
     else:
         f.write("        ")
     f.write("{\n")
@@ -167,6 +166,10 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
     }\n""")
     f.write("}\n")
     f.write("\n")
+    
+    wfunchead(f, qid, 'void freport', "const void* buf", "uint32_t count")
+    f.write("}\n")
+    f.write("\n")
 
 def wlookupcall(f, off):
     f.write("""
@@ -175,30 +178,17 @@ def wlookupcall(f, off):
 %s    return;
 %s}"""%(off, off, off, off))
 
-def writelookup(f,  nm):
-    writelocalhead(f, '%s* lookup'%(nm), 
-                   'const ipfix_query_buf_t* buf, const Values* vals, ipfix_query_pos_t* poses');
-    f.write('    %s* collect = (%s*)buf->data;\n'%(nm, nm))
-    f.write("\n")
-    f.write('    poses->bufpos++;\n')
-    f.write('    if(poses->bufpos >= buf->count){\n')
-    f.write('        return 0;\n')
-    f.write("    }\n")
-    f.write("    return collect;\n")
-    f.write("}\n")
-    f.write("\n")
-
 def writestructs(f, qid, nm):
     f.write("""
 typedef struct PACKED %s_t %s;
 
 struct PACKED %s_t{
-    %s*     next;
-    Values          values;
-    uint64_t        bytes;
-    uint64_t        packets;
+    uint32_t     next;
+    Values       values;
+    uint64_t     bytes;
+    uint64_t     packets;
 };
-    """%(nm, nm, nm, nm))
+    """%(nm, nm, nm))
     f.write("\n")
     f.write('uint32_t fwidth_%s = sizeof(%s);\n'%(qid, nm))
     f.write("\n")
@@ -236,7 +226,7 @@ def valfield(fk, fv, pref, lss):
 def validate(fields):
     lss = set()
     css = {}
-    pref = 'flow->'
+    pref = 'entry->'
     for fk, fv in fields.items():
         cs = valfield(fk, fv, pref, lss)
         if cs: css[fk] = cs
@@ -280,17 +270,19 @@ def wcondition(f, lns):
             f.write(' '*len(s))
         f.write("(%s)) { return 0; }\n"%(lns[-1]))
     
+def wcondgroup(f, cgroup):
+    for fk in sorted(cgroup.keys()):
+        lns = cgroup[fk]
+        wcondition(f, lns)
+    writecheckerend(f)
+    
 def genrawsource(f, qid, css, lss, s):
     writehead(f, s)
     # fields to filter flows with
     # If these fields no not match with given flow then flow is discarded
-    f.write("int fcheck_%s(const ipfix_flow_t* flow){\n"%(qid))
-    for fk in sorted(css.keys()):
-        lns = css[fk]
-        wcondition(f, lns)
-    f.write("    return 1;\n")
-    f.write("}\n")
-    f.write("\n")
+    f.write("int fcheck_%s(const ipfix_flow_t* entry){\n"%(qid))
+    wcondgroup(f, css)
+
     iptypes = []
     for ftype in lss:
         if type(ftype) == query.ntypes.IPType:
@@ -418,6 +410,3 @@ def buildc(fname, includes, qid, nm):
 def buildcython(fname, includes):
     setup(ext_modules = cythonize([os.path.basename(fname)], include_path=[includes]),
           script_args=['build_ext', '--inplace'])
-
-if __name__ == '__main__':
-    main()

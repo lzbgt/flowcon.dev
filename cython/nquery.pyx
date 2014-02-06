@@ -89,24 +89,40 @@ cdef class RawQuery(Query):
 
 cdef class QueryBuffer(object):
     def __cinit__(self):
-        self._width = None
+        self._width = 0
         self._entries = np.zeros(minbufsize, dtype=np.uint8)
         cdef np.ndarray[np.uint8_t, ndim=1] arr = self._entries
         self._buf.data = <void*>arr.data
 
     @cython.boundscheck(False)
-    cdef void init(self, uint32_t width):
+    cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t sizehint):
         cdef uint32_t size = self._entries.size
         self._width = width
         self._buf.count = size/width
 
-        self._positions.pos = 0
+        self._positions.bufpos = 1  # position 0 is illegal, let's make sure it's not taken and not used 
         self._positions.countpos = 0
-        
-    @cython.boundscheck(False)
-    cdef const ipfix_query_buf* getbuf(self) nogil:
-        return cython.address(self._buf)
     
+        cdef int bits = int(np.math.log(2*sizehint-1, 2))
+        cdef int indsize = 2**bits
+        
+        self._poses = np.zeros(indsize, dtype=np.uint32)
+        cdef np.ndarray[np.uint32_t, ndim=1] arr = self._poses
+        
+        self._buf.poses = <uint32_t*>arr.data
+        self._buf.mask = 2**bits-1
+        
+        return cython.address(self._buf)
+
+    @cython.boundscheck(False)
+    cdef void release(self, const ipfix_query_buf* buf):
+        cdef poses = self._poses
+        if poses is not None:
+            del poses # not necessary, just in case 
+            self._poses = None
+        self._buf.poses = NULL
+        self._buf.mask = 0
+        
     @cython.boundscheck(False)
     cdef ipfix_query_pos* getposes(self) nogil:
         return cython.address(self._positions)
@@ -142,6 +158,8 @@ cdef class PeriodicQuery(Query):
         self._width = cython.operator.dereference(wptr)
         if self._width == 0 or self._width > 1000:
             raise Exception("Unexpected width for query results: %d"%(self._width))
+        
+        self._sizehint = minbufsize
 
     @cython.boundscheck(False)
     def matchsource(self, long ip):
@@ -151,23 +169,38 @@ cdef class PeriodicQuery(Query):
     def runseconds(self, QueryBuffer qbuf, secset, uint64_t stamp):
         cdef SecondsCollector sec
         
-        qbuf.init(self._width)
+        cdef const ipfix_query_buf* buf = qbuf.init(self._width, self._sizehint)
         
         for sec in secset:
-            sec.collect(self, qbuf, stamp)
+            sec.collect(self, qbuf, stamp, <void*>buf)
             
-        cdef const ipfix_query_buf* buf = qbuf.getbuf()
+        cdef ipfix_query_pos* poses = qbuf.getposes()
 
-        (<ipfix_collector_report_t>self.reporter)(buf)
+        (<ipfix_collector_report_t>self.reporter)(buf.data, poses.bufpos)
+        print "bufpos: %d"%(poses.bufpos)
+        
+        qbuf.release(buf)
             
     @cython.boundscheck(False)
-    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip) nogil:
-        cdef const ipfix_query_buf* buf = bufinfo.getbuf()
+    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip, void* data) nogil:
+        cdef const ipfix_query_buf* buf = <ipfix_query_buf*>data
         cdef ipfix_query_pos* poses = bufinfo.getposes()
             
         while True:
+            # 
+            with gil:
+                print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
+                print "qinfo: count:%d"%(info.count)
+                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
+            #
             (<ipfix_collector_call_t>self.checker)(buf, info, poses, expip)
+            # 
+            with gil:
+                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
+            #            
+            
             if poses.countpos >= info.count: return # checker ran through all entries
+
 
             with gil:        
                 # not all entries are collected yet
@@ -175,7 +208,7 @@ cdef class PeriodicQuery(Query):
                     raise Exception("bufpos %d < total %d"%(poses.bufpos, buf.count))
                 # run out of space ; need to grow
                 bufinfo.grow()
-            
+                
 #===================================================
 
 def _dummy():

@@ -36,7 +36,7 @@ class Collector(object):
         while end > self._a.size:
             # need to grow
             size = self._a.size*2
-            logger.dump("resizing %s to %d"%(self._nm, size))
+            #logger.dump("resizing %s to %d"%(self._nm, size))
             self._a.resize(size, refcheck=False)
             self._view = self._a.view(dtype=self._view.dtype)
 

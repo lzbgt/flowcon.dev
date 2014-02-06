@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, pprint, time
+import zmq, datetime, pprint
 
 from zmq.eventloop import ioloop
 ioloop.install()

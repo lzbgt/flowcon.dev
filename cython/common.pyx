@@ -102,6 +102,8 @@ cdef extern from "ipfix.h":
     cdef struct ipfix_query_buf:
         void*   data
         long    count
+        long*   poses
+        long    mask
 
     cdef struct ipfix_query_pos:
         long    bufpos
@@ -112,4 +114,4 @@ cdef extern from "ipfix.h":
                                             ipfix_query_pos* poses,
                                             uint32_t expip) nogil
 
-    ctypedef void (*ipfix_collector_report_t)(const ipfix_query_buf* buf) nogil
+    ctypedef void (*ipfix_collector_report_t)(const void* buf, uint32_t count) nogil

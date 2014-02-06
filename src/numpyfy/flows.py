@@ -134,7 +134,7 @@ class FlowSet(object):
     def newflow(self):
         if self._pos >= self._a.size:
             size = self._a.size*2
-            logger.dump("resizing %s to %d"%(self.name, size))
+            #logger.dump("resizing %s to %d"%(self.name, size))
             self._a.resize(size, refcheck=False)
             self._digview = self._a.view(dtype=self._digview.dtype)
             self._copyview = self._a.view(dtype=self._copyview.dtype)

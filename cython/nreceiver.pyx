@@ -88,7 +88,8 @@ cdef class Receiver(object):
         cdef uint32_t index, pos, exporter, fexp
         cdef Collector fcol, acol
         cdef SecondsCollector scol
-        cdef ipfix_flow outflow, *flow
+        cdef ipfix_flow outflow
+        cdef ipfix_flow* flow
         
         flow = cython.address(outflow)
         

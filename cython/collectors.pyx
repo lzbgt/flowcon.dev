@@ -87,7 +87,7 @@ cdef class SecondsCollector(object):
         cdef oldcounters = self._counters
         cdef uint64_t startbytes, endbytes
 
-        logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
+        #logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
         
         self._alloc(newsize)
         
@@ -145,7 +145,7 @@ cdef class SecondsCollector(object):
         self._currentsec = current
     
     @cython.boundscheck(False)
-    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp) nogil:
+    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp, void* data) nogil:
         cdef uint32_t secpos = self._currentsec
         cdef uint32_t prevpos, oldestpos, lastpos = self._seconds[secpos]
         cdef uint64_t prevstamp, stamp = self._stamps[secpos]
@@ -198,17 +198,17 @@ cdef class SecondsCollector(object):
             if lastpos > oldestpos:
                 qinfo.first = self._counterset+oldestpos
                 qinfo.count = lastpos-oldestpos
-                q.collect(bufinfo, cython.address(qinfo), self._ip)
+                q.collect(bufinfo, cython.address(qinfo), self._ip, data)
         else:
             # two chunks of data
             # collect older
             qinfo.first = self._counterset+oldestpos
             qinfo.count = self._depth-oldestpos
-            q.collect(bufinfo, cython.address(qinfo), self._ip)
+            q.collect(bufinfo, cython.address(qinfo), self._ip, data)
             # collect newer
             qinfo.first = self._counterset
             qinfo.count = lastpos
-            q.collect(bufinfo, cython.address(qinfo), self._ip)
+            q.collect(bufinfo, cython.address(qinfo), self._ip, data)
         
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos):
         cdef ipfix_store_counts* start
@@ -341,7 +341,7 @@ cdef class Collector(object):
         cdef uint32_t* iset
         cdef ipfix_store_entry* entry
 
-        logger('resizing %s %d->%d'%(self._name, self.maxentries, size))
+        #logger('resizing %s %d->%d'%(self._name, self.maxentries, size))
         if not self._resz(size): return
         # lets fix indices and links
         mask = self.mask
@@ -408,7 +408,8 @@ cdef class FlowCollector(Collector):
 
     @cython.boundscheck(False)
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index):
-        cdef ipfix_store_attributes* prev, *curr
+        cdef ipfix_store_attributes* prev
+        cdef ipfix_store_attributes* curr
         cdef ipfix_store_flow* flowrec = <ipfix_store_flow*>entry
         cdef int report = False # disable reporting for now
 
@@ -469,7 +470,8 @@ cdef class FlowCollector(Collector):
         cdef unsigned char* eset = self.entryset        
         cdef uint32_t sz = self._width
         cdef ipfix_store_flow* flow = <ipfix_store_flow*>(eset+maxpos*sz)
-        cdef ipfix_store_flow* nextflow, *prevflow
+        cdef ipfix_store_flow* nextflow
+        cdef ipfix_store_flow* prevflow
 
         # let's shrink inventory until first non-free record
         while flow.refcount == 0:
