@@ -5,6 +5,10 @@
 #### distutils: library_dirs = 
 #### distutils: depends = 
 
+
+#TMP
+#import sys
+#
 import numpy as np
 cimport cython
 cimport numpy as np
@@ -28,7 +32,7 @@ def _dummy():
 
 cdef class SecondsCollector(object):
 
-    def __init__(self, nm, uint32_t ip, FlowCollector flows, uint32_t secondsdepth):
+    def __init__(self, nm, uint32_t ip, FlowCollector flows, uint32_t secondsdepth, uint32_t stamp):
         cdef uint32_t pos
         self._name = nm
         self._ip = ip
@@ -41,6 +45,8 @@ cdef class SecondsCollector(object):
             self._seconds[pos] = INVALID
         
         self._currentsec = 0
+        self._seconds[self._currentsec] = 0
+        self._stamps[self._currentsec] = stamp
 
         self._alloc(minsize)
 
@@ -150,6 +156,14 @@ cdef class SecondsCollector(object):
         cdef uint32_t prevpos, oldestpos, lastpos = self._seconds[secpos]
         cdef uint64_t prevstamp, stamp = self._stamps[secpos]
 
+        # TMP
+#        with gil:
+#            print "  collecting: stamp:%d oldstamp:%d curpos:%d"%(stamp, oldeststamp, secpos)
+##            for x in range(100):
+##                print "    [%2d] %10d %10d"%(x, self._stamps[x], self._seconds[x])
+#            sys.stdout.flush()
+        #
+
         if stamp <= oldeststamp: return     # current or future seconds are not available yet
 
         # seconds may not be evenly distributed; lets jump to approximate location and then lookup
@@ -158,9 +172,16 @@ cdef class SecondsCollector(object):
             if seconds >= self._depth:
                 secpos += 1 # just get oldest we have
                 if secpos >= self._depth: secpos = 0
-            secpos = self._depth + secpos - seconds
+            else:
+                secpos = self._depth + secpos - seconds
         else:
             secpos -= seconds
+
+        # TMP
+#        with gil:
+#            print "  secpos estim: %d"%(secpos)
+#            sys.stdout.flush()
+        #
         
         stamp = self._stamps[secpos]
         if stamp <= oldeststamp:
@@ -182,7 +203,13 @@ cdef class SecondsCollector(object):
                 # need this in case if oldeststamp is older than anything we have
                 if stamp >= prevstamp: break
             secpos = prevpos               # this is last known good position
-            
+
+        # TMP
+#        with gil:
+#            print "  secpos: %d"%(secpos)
+#            sys.stdout.flush()
+        #
+
         # here we have secpos pointing to proper position where we need to start collection
 
         cdef ipfix_store_flow* flows = <ipfix_store_flow*>self._flows.entryset
@@ -194,6 +221,13 @@ cdef class SecondsCollector(object):
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
         oldestpos = self._seconds[secpos]
+
+        # TMP
+#        with gil:
+#            print "  lastpos: %d oldestpos: %d"%(lastpos, oldestpos)
+#            sys.stdout.flush()
+        #
+        
         if lastpos >= oldestpos:  # one chunk of data
             if lastpos > oldestpos:
                 qinfo.first = self._counterset+oldestpos

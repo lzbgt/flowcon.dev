@@ -114,4 +114,6 @@ cdef extern from "ipfix.h":
                                             ipfix_query_pos* poses,
                                             uint32_t expip) nogil
 
-    ctypedef void (*ipfix_collector_report_t)(const void* buf, uint32_t count) nogil
+    ctypedef char* (*rep_callback_t)(void* data, size_t* size)
+    ctypedef size_t (*ipfix_collector_report_t)(const void* buf, uint32_t count, char* out,
+                                              size_t maxsize, rep_callback_t callback, void* obj) nogil

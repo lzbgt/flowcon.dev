@@ -6,7 +6,7 @@ Created on Jan 28, 2014
 
 import datetime, dateutil.tz
 
-import native.types as ntypes, native.dynamo, time
+import native.types as ntypes, native.dynamo, calendar
 import flowtools.logger as logger 
 
 tzutc = dateutil.tz.tzutc()
@@ -107,7 +107,7 @@ class RawQuery(Query):
         return True
 
 def mkstamp(d):
-    return int(time.mktime(d.timetuple()))
+    return int(calendar.timegm(d.timetuple()))
 
 class PeriodicQuery(Query):
     vicinity = 0.1 # seconds

@@ -4,7 +4,7 @@ Created on Jan 24, 2014
 @author: schernikov
 '''
 
-import socket, urlparse
+import socket, urlparse, datetime
 
 import native
 
@@ -77,10 +77,11 @@ class Sources(object):
         for _ in range(4):
             nm = ('%d.'%(ip & 0xFF))+nm 
             ip >>= 8
+        stamp = native.query.mkstamp(datetime.datetime.utcnow())
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._seconds = colmod.SecondsCollector("S:"+self._name, ip, self._flows, self.maxseconds)
+        self._seconds = colmod.SecondsCollector("S:"+self._name, self._ip, self._flows, self.maxseconds, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds

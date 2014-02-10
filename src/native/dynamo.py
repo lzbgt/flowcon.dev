@@ -49,43 +49,40 @@ def genper(fields):
         #for k, v in fields
         flds = fields.copy()
         del flds[expnm]
-        s = json.dumps((expnm, exporter))
         cs = valfield(expnm, exporter, '', lss)
-        vres = validate(flds)
+        vres = validate(flds, expcs = cs, expls = lss, expnm = expnm)
     else:
-        s = ''
         cs = []
         vres = validate(fields)
 
     def gensource(*args):
-        genpersource(cs, lss, s, *args)
+        genpersource(cs, lss, *args)
     
     return dynbuilder.build(vres, gensource, qmod.PeriodicQuery, 'P')
 
    
-def genpersource(explns, explss, exps, f, qid, css, lss, s):
-    writehead(f, s+exps)
+def genpersource(explns, explss, f, qid, css, lss, s):
+    writehead(f, s)
     
     colltypename = 'Collection'
     
     f.write("typedef struct PACKED {\n")
     
-    flownames = []
-    attrnames = []
-    expnames = []
-    
+    flowtypes = []
+    attrtypes = []
+    exptypes = []
     for ftype in lss:
         if ftype in query.Query.specialtuple:
             continue
         f.write("    uint%d_t %s;\n"%(ftype.size*8, ftype.name))
         if ftype in query.Query.flowtuple:
-            flownames.append(ftype.name)
+            flowtypes.append(ftype)
         else:
-            attrnames.append(ftype.name)
+            attrtypes.append(ftype)
 
     for expftype in explss:
         f.write("    uint%d_t %s;\n"%(expftype.size*8, expftype.name))
-        expnames.append(expftype.name)
+        exptypes.append(expftype)
 
     f.write("} Values;\n")
 
@@ -121,21 +118,22 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
                                      "ipfix_query_pos_t* poses",
                                      "uint32_t exporter")
     f.write("    %s* collect;\n    Values vals;\n"%(colltypename))
-    f.write("    const ipfix_store_counts_t* counters = info->first+poses->countpos;\n")
-    if flownames or attrnames:
+    f.write("    const ipfix_store_counts_t* firstcount = info->first;\n")
+    if flowtypes or attrtypes:
         f.write("    const ipfix_store_flow_t* firstflow = info->flows;\n")
-        if attrnames:
+        if attrtypes:
             f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
     f.write("\n")
-    if not flownames and not attrnames and not expnames:
+    if not flowtypes and not attrtypes and not exptypes:
         wlookupcall(f, "    ")
     
     f.write("""    while(poses->countpos < info->count){\n""")
-    if flownames or attrnames or flowchecks or attrchecks:
+    f.write("        const ipfix_store_counts_t* counters = firstcount+poses->countpos;\n")
+    if flowtypes or attrtypes or flowchecks or attrchecks:
         f.write("        const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;\n")
-        if attrnames or attrchecks:
+        if attrtypes or attrchecks:
             f.write("        const ipfix_attributes_t* attr = &((firstattr + flowentry->attrindex)->attributes);\n")
-        if flownames or flowchecks:
+        if flowtypes or flowchecks:
             f.write("        const ipfix_flow_tuple_t* flow = &flowentry->flow;\n")
         f.write("\n")
         if flowchecks and attrchecks:
@@ -149,13 +147,13 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
     else:
         f.write("        ")
     f.write("{\n")
-    if flownames or attrnames or expnames:
-        for nm in flownames:
-            f.write("            vals.%s = flow->%s;\n"%(nm, nm))
-        for nm in attrnames:
-            f.write("            vals.%s = attr->%s;\n"%(nm, nm))
-        for nm in expnames:
-            f.write("            vals.%s = %s;\n"%(nm, nm))
+    if flowtypes or attrtypes or exptypes:
+        for ftp in flowtypes:
+            f.write("            vals.%s = flow->%s;\n"%(ftp.name, ftp.name))
+        for atp in attrtypes:
+            f.write("            vals.%s = attr->%s;\n"%(atp.name, atp.name))
+        for etp in exptypes:
+            f.write("            vals.%s = %s;\n"%(etp.name, etp.name))
         wlookupcall(f, "            ")
     f.write("""
             collect->bytes += counters->bytes;
@@ -164,12 +162,59 @@ def genpersource(explns, explss, exps, f, qid, css, lss, s):
 
         poses->countpos++;
     }\n""")
-    f.write("}\n")
-    f.write("\n")
+    writefunctail(f)
     
-    wfunchead(f, qid, 'void freport', "const void* buf", "uint32_t count")
-    f.write("}\n")
-    f.write("\n")
+    wfunchead(f, qid, 'size_t freport', "const void* buf", "uint32_t count", 
+                      "char* out","size_t maxsize", "rep_callback_t callback", "void* obj")
+    f.write("""
+    uint32_t i;
+    uint64_t totbytes=0, totpackets=0;
+    int num;
+    Collection* collection = (Collection*)buf;
+    size_t size = maxsize;\n""")
+    tlst = []
+    hasip = False
+    if lss or explss:
+        tlst.extend(lss)
+        tlst.extend(explss)
+        tlst = sorted(tlst, key=lambda l: l.id)
+        for tp in tlst:
+            if type(tp) == query.ntypes.IPType: hasip = True
+    if hasip:            
+        f.write("    unsigned char* pip;\n")
+    f.write('\n')
+    wsnprintf(f, "    ", r'"{\"counts\":["')
+    f.write("    for (i = 0; i < count; ++i) {\n")
+    f.write("        if(i == 0) {\n")
+    wsnprintf(f, "        ", '"[["')
+    f.write("        } else {\n")
+    wsnprintf(f, "        ", '",[["')
+    f.write("        }\n")
+    totids = ''
+    sep = ''
+    for tp in tlst:
+        if type(tp) == query.ntypes.IPType: 
+            f.write("        pip = (unsigned char*)&collection->values.%s;\n"%(tp.name))
+            wsnprintf(f, "        ", '"'+sep+r'\"%d.%d.%d.%d\"", pip[3], pip[2], pip[1], pip[0]')
+        else:
+            wsnprintf(f, "        ", '"'+sep+r'"\"%d\"", collection->values.'+tp.name)
+        totids += r'%s\"%s\"'%(sep, tp.id)
+        sep = ','
+    wsnprintf(f, "        ", r'"],[%llu,%llu]]", (LLUT)collection->bytes, (LLUT)collection->packets')
+    f.write("""
+        totbytes += collection->bytes;
+        totpackets += collection->packets;
+        collection++;    
+    }\n""")
+    
+    wsnprintf(f, "    ", r'"],\"totals\":{\"counts\":[[%s],'%(totids)+
+                         r'[%llu,%llu]", (LLUT)totbytes, (LLUT)totpackets')
+    wsnprintf(f, "    ", r'"],\"entries\":%d}}", count')
+    f.write('    return maxsize-size;\n')    
+    writefunctail(f)
+
+def wsnprintf(f, off, pargs):
+    f.write("%sSNPRINTF(%s);\n"%(off, pargs))
 
 def wlookupcall(f, off):
     f.write("""
@@ -197,10 +242,13 @@ struct PACKED %s_t{
 def writelocalhead(f, nm, arg):
     f.write("static inline %s(%s){\n"%(nm, arg))
 
-def writecheckerend(f):
-    f.write("    return 1;\n")
+def writefunctail(f):
     f.write("}\n")
     f.write("\n")
+    
+def writecheckerend(f):
+    f.write("    return 1;\n")
+    writefunctail(f)
 
 def valfield(fk, fv, pref, lss):
     ftype = query.ntypes.Type.all.get(fk, None)
@@ -223,7 +271,7 @@ def valfield(fk, fv, pref, lss):
                 ss.add(_mkone(pref, ftype, v))
         return sorted(ss)
             
-def validate(fields):
+def validate(fields, expcs = None, expls = None, expnm = ''):
     lss = set()
     css = {}
     pref = 'entry->'
@@ -236,8 +284,12 @@ def validate(fields):
     lss = sorted(lss, key=lambda l: l.id)
     ls = ['%s'%(x.id) for x in lss]
     res = []
+    if expcs:
+        res.append((expnm, expcs))
     for fk in sorted(css.keys()):
         res.append((fk, css[fk]))
+    if expls:
+        res.extend(['%s'%(x.id) for x in expls])
     res.extend(ls)
 
     sha = hashlib.sha1()
@@ -311,7 +363,8 @@ def genrawsource(f, qid, css, lss, s):
     for v in vals:
         f.write('%s%s,\n'%(off, v))
     f.write('%sflow->bytes, flow->packets);\n'%(off))
-    f.write("}\n")
+    writefunctail(f)
+
     writetail(f)
     return qid
 
@@ -320,7 +373,7 @@ def writefromip(f):
     f.write("    unsigned char* pip = (unsigned char*)&ip;\n")
     f.write('    snprintf(buf, size, "%d.%d.%d.%d", pip[3], pip[2], pip[1], pip[0]);\n')
     f.write("    return buf;\n")
-    f.write("}\n")
+    writefunctail(f)
 
 def toint(fk):
     try:

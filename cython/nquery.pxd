@@ -20,7 +20,8 @@ cdef class RawQuery(Query):
 
 cdef class QueryBuffer(object):
 	cdef _entries
-	cdef _poses
+	cdef _extras
+	cdef char* _extradata
 	cdef uint32_t _width
 	cdef uint32_t _sizehint
 	cdef ipfix_query_buf _buf
@@ -29,7 +30,9 @@ cdef class QueryBuffer(object):
 	cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t sizehint)
 	cdef void grow(self)
 	cdef ipfix_query_pos* getposes(self) nogil
-	cdef void release(self, const ipfix_query_buf* buf)
+	cdef char* repcallback(self, size_t* size_p)
+	cdef void _extraresize(self, uint32_t nbytes)
+	cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter)
 	
 cdef class PeriodicQuery(Query):
 	cdef fexpchecktype expchecker

@@ -14,6 +14,7 @@ cdef extern from "dlfcn.h":
     int RTLD_LAZY
 
 import numpy as np
+
 cimport cython
 cimport numpy as np
 
@@ -93,6 +94,14 @@ cdef class QueryBuffer(object):
         self._entries = np.zeros(minbufsize, dtype=np.uint8)
         cdef np.ndarray[np.uint8_t, ndim=1] arr = self._entries
         self._buf.data = <void*>arr.data
+        self._extras = np.zeros(1, dtype=np.uint8)
+        self._extraresize(minbufsize)
+
+    @cython.boundscheck(False)
+    cdef void _extraresize(self, uint32_t nbytes):
+        self._extras.resize(nbytes, refcheck=False)
+        cdef np.ndarray[np.uint8_t, ndim=1] arr = self._extras
+        self._extradata = <char*>arr.data
 
     @cython.boundscheck(False)
     cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t sizehint):
@@ -106,23 +115,48 @@ cdef class QueryBuffer(object):
         cdef int bits = int(np.math.log(2*sizehint-1, 2))
         cdef int indsize = 2**bits
         
-        self._poses = np.zeros(indsize, dtype=np.uint32)
-        cdef np.ndarray[np.uint32_t, ndim=1] arr = self._poses
+        if (sizeof(uint32_t)*indsize) > self._extras.size:
+            self._extraresize(sizeof(uint32_t)*indsize)
         
-        self._buf.poses = <uint32_t*>arr.data
+        self._buf.poses = <uint32_t*>self._extradata
         self._buf.mask = 2**bits-1
         
         return cython.address(self._buf)
 
     @cython.boundscheck(False)
-    cdef void release(self, const ipfix_query_buf* buf):
-        cdef poses = self._poses
-        if poses is not None:
-            del poses # not necessary, just in case 
-            self._poses = None
+    cdef char* repcallback(self, size_t* size_p):
+        if size_p == NULL: return NULL
+        cdef size_t size = self._extras.size*2
+        if size < size_p[0]: size = size_p[0]
+
+        logger("growing Q extras %d->%d"%(self._extras.size, size))
+        
+        self._extraresize(size)
+        size_p[0] = size
+        
+        return self._extradata
+
+    @cython.boundscheck(False)
+    cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter):
+        cdef bytes result
+        cdef size_t printed
+        cdef uint32_t count, size = self._extras.size
+        cdef char* input
+
         self._buf.poses = NULL
         self._buf.mask = 0
-        
+
+        count = self._positions.bufpos
+        if count <= 1: return <bytes>''
+        count -= 1
+        input = <char*>self._buf.data+self._width # skip first entry; it is never used
+
+        printed = reporter(input, count, self._extradata, size, repcallback, <void*>self)
+        if printed <= 0:
+            return <bytes>('{"error":"can not print %d collected entries"}'%(count))
+
+        return <bytes>(self._extradata)[:printed]
+                
     @cython.boundscheck(False)
     cdef ipfix_query_pos* getposes(self) nogil:
         return cython.address(self._positions)
@@ -131,13 +165,17 @@ cdef class QueryBuffer(object):
     cdef void grow(self):
         cdef uint32_t size = self._entries.size*2
 
-        logger("growing Q buf %d->%d"%(self._entries.size, size))
+        logger("growing Q entries %d->%d"%(self._entries.size, size))
 
         self._entries.resize(size, refcheck=False)
 
         cdef np.ndarray[np.uint8_t, ndim=1] arr = self._entries
         self._buf.data = <void*>arr.data
         self._buf.count = size/self._width
+        
+cdef char* repcallback(void* data, size_t* size_p):
+    cdef QueryBuffer qbuf = <QueryBuffer>data
+    return qbuf.repcallback(size_p)
         
 cdef class PeriodicQuery(Query):
 
@@ -173,30 +211,29 @@ cdef class PeriodicQuery(Query):
         
         for sec in secset:
             sec.collect(self, qbuf, stamp, <void*>buf)
-            
-        cdef ipfix_query_pos* poses = qbuf.getposes()
 
-        (<ipfix_collector_report_t>self.reporter)(buf.data, poses.bufpos)
-        print "bufpos: %d"%(poses.bufpos)
+        cdef bytes result = qbuf.onreport(buf, <ipfix_collector_report_t>self.reporter)
         
-        qbuf.release(buf)
-            
+        return results
+
     @cython.boundscheck(False)
     cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip, void* data) nogil:
         cdef const ipfix_query_buf* buf = <ipfix_query_buf*>data
         cdef ipfix_query_pos* poses = bufinfo.getposes()
             
+        poses.countpos = 0    # reset to start from first flow in info
+
         while True:
-            # 
-            with gil:
-                print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
-                print "qinfo: count:%d"%(info.count)
-                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
+            # TMP
+            #with gil:
+            #    print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
+            #    print "qinfo: count:%d"%(info.count)
+            #    print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
             #
             (<ipfix_collector_call_t>self.checker)(buf, info, poses, expip)
-            # 
-            with gil:
-                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
+            # TMP
+            #with gil:
+            #    print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
             #            
             
             if poses.countpos >= info.count: return # checker ran through all entries

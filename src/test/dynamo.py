@@ -32,7 +32,7 @@ class Srcs(object):
     
 def playback(fname):
     #fields = {'8': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
-    fields = {'130': ['198.154.124.14', '*'], '12':'*'}
+    fields = {'130': '*', '12':'*'}
     #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
 
     with open(fname) as f:
@@ -45,11 +45,15 @@ def playback(fname):
     
     receiver = native.receiver.recmod.Receiver(srcs)
 
+    dkeys = sorted(collect.keys())
+    prevstamp = native.query.mkstamp(dkeys[0])
     for d in sorted(collect.keys()):
         buf = collect[d]
+        stamp = native.query.mkstamp(d)
+        if stamp != prevstamp:
+            srcs.on_time(stamp)
+            prevstamp = stamp
         receiver.receive(buf, len(buf))
-    
-    srcs.on_time(1)
     
     secset = []
     for ip, s in srcs._srcs.items():
@@ -57,8 +61,8 @@ def playback(fname):
         _, _, secs = s.getcollectors()
         secset.append(secs)
 
-    rq.runseconds(qbuf, secset, 1)
-
+    rq.runseconds(qbuf, secset, prevstamp-2)
+    
     #rq.testflow(0x01020406)
 
 def capture(fname, addr):
