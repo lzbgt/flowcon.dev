@@ -102,7 +102,7 @@ class Query(flowcon.connector.Connection):
 
     def on_msg(self, msg):
         rep = zmq.utils.jsonapi.loads(msg[0])
-        if not hasattr(rep, '__dict__'):
+        if not isinstance(rep, dict):
             print rep
         else:
             ll = rep.get('counts', None)

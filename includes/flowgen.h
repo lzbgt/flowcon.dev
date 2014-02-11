@@ -26,8 +26,8 @@ static inline Collection* lookup(const ipfix_query_buf_t* buf, const Values* val
 			current = collect + pos;
 
 			if(memcmp(&current->values, vals, sizeof(current->values)) == 0){
-/*				printf("   ===crc:0x%08x idx:%d pos:%d dst:0x%08x, exp:0x%08x\n", (unsigned int)crc,
-						idx, pos, current->values.dstaddr, current->values.exporter);*/
+/*				printf("   ===crc:0x%08x idx:%d pos:%d exp:0x%08x\n", (unsigned int)crc,
+						idx, pos, current->values.exporter);*/
 				return current;
 			}
 
@@ -47,8 +47,8 @@ static inline Collection* lookup(const ipfix_query_buf_t* buf, const Values* val
     current->bytes = 0;
     current->packets = 0;
 
-/*	printf("   +++crc:0x%08x idx:%d pos:%d dst:0x%08x, exp:0x%08x\n", (unsigned int)crc,
-			idx, last, current->values.dstaddr, current->values.exporter);*/
+/*	printf("   +++crc:0x%08x idx:%d pos:%d exp:0x%08x\n", (unsigned int)crc,
+			idx, last, current->values.exporter);*/
 
     return current;
 }

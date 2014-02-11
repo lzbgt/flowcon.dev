@@ -124,10 +124,13 @@ def genpersource(explns, explss, f, qid, css, lss, s):
         if attrtypes:
             f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
     f.write("\n")
-    if not flowtypes and not attrtypes and not exptypes:
+
+    for etp in exptypes:
+        f.write("    vals.%s = %s;\n"%(etp.name, etp.name))
+    if not flowtypes and not attrtypes:
         wlookupcall(f, "    ")
-    
-    f.write("""    while(poses->countpos < info->count){\n""")
+    f.write("\n")
+    f.write("    while(poses->countpos < info->count){\n")
     f.write("        const ipfix_store_counts_t* counters = firstcount+poses->countpos;\n")
     if flowtypes or attrtypes or flowchecks or attrchecks:
         f.write("        const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;\n")
@@ -147,30 +150,29 @@ def genpersource(explns, explss, f, qid, css, lss, s):
     else:
         f.write("        ")
     f.write("{\n")
-    if flowtypes or attrtypes or exptypes:
+    if flowtypes or attrtypes:
         for ftp in flowtypes:
             f.write("            vals.%s = flow->%s;\n"%(ftp.name, ftp.name))
         for atp in attrtypes:
             f.write("            vals.%s = attr->%s;\n"%(atp.name, atp.name))
-        for etp in exptypes:
-            f.write("            vals.%s = %s;\n"%(etp.name, etp.name))
         wlookupcall(f, "            ")
     f.write("""
             collect->bytes += counters->bytes;
-            collect->packets = counters->packets;
+            collect->packets += counters->packets;
+            poses->totbytes += counters->bytes;
+            poses->totpackets += counters->packets;
         }
 
         poses->countpos++;
     }\n""")
     writefunctail(f)
     
-    wfunchead(f, qid, 'size_t freport', "const void* buf", "uint32_t count", 
+    wfunchead(f, qid, 'size_t freport', "const ipfix_query_pos_t* totals", "int accending", "const void* buf", "uint32_t count", 
                       "char* out","size_t maxsize", "rep_callback_t callback", "void* obj")
     f.write("""
     uint32_t i;
-    uint64_t totbytes=0, totpackets=0;
-    int num;
-    Collection* collection = (Collection*)buf;
+    int num, step;
+    Collection* collection;
     size_t size = maxsize;\n""")
     tlst = []
     hasip = False
@@ -182,13 +184,21 @@ def genpersource(explns, explss, f, qid, css, lss, s):
             if type(tp) == query.ntypes.IPType: hasip = True
     if hasip:            
         f.write("    unsigned char* pip;\n")
+    f.write("""
+    if(accending){
+        collection = (Collection*)buf;
+        step = 1;
+    } else {
+        collection = (Collection*)buf+count-1;
+        step = -1;
+    }""");
     f.write('\n')
     wsnprintf(f, "    ", r'"{\"counts\":["')
     f.write("    for (i = 0; i < count; ++i) {\n")
     f.write("        if(i == 0) {\n")
-    wsnprintf(f, "        ", '"[["')
+    wsnprintf(f, "            ", '"[["')
     f.write("        } else {\n")
-    wsnprintf(f, "        ", '",[["')
+    wsnprintf(f, "            ", '",[["')
     f.write("        }\n")
     totids = ''
     sep = ''
@@ -201,15 +211,11 @@ def genpersource(explns, explss, f, qid, css, lss, s):
         totids += r'%s\"%s\"'%(sep, tp.id)
         sep = ','
     wsnprintf(f, "        ", r'"],[%llu,%llu]]", (LLUT)collection->bytes, (LLUT)collection->packets')
-    f.write("""
-        totbytes += collection->bytes;
-        totpackets += collection->packets;
-        collection++;    
-    }\n""")
+    f.write("\n        collection += step;\n        }\n")
     
     wsnprintf(f, "    ", r'"],\"totals\":{\"counts\":[[%s],'%(totids)+
-                         r'[%llu,%llu]", (LLUT)totbytes, (LLUT)totpackets')
-    wsnprintf(f, "    ", r'"],\"entries\":%d}}", count')
+                         r'[%llu,%llu]", (LLUT)totals->totbytes, (LLUT)totals->totpackets')
+    wsnprintf(f, "    ", r'"],\"entries\":%d}}", totals->bufpos-1')
     f.write('    return maxsize-size;\n')    
     writefunctail(f)
 
@@ -237,6 +243,9 @@ struct PACKED %s_t{
     f.write("\n")
     f.write('uint32_t fwidth_%s = sizeof(%s);\n'%(qid, nm))
     f.write("\n")
+    f.write("\n")
+    f.write('uint32_t foffset_%s = (uint32_t)((uint64_t)(&(((%s*)0)->bytes)));\n'%(qid, nm))
+    f.write("\n")    
 
 
 def writelocalhead(f, nm, arg):

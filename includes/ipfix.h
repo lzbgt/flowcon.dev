@@ -107,6 +107,9 @@ typedef struct PACKED ipfix_query_buf {
 typedef struct PACKED ipfix_query_pos {
 	uint32_t 			bufpos;
 	uint32_t 			countpos;
+
+	uint64_t			totbytes;
+	uint64_t			totpackets;
 } ipfix_query_pos_t;
 
 typedef struct PACKED ipfix_query_info {
@@ -122,7 +125,8 @@ typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
 									   uint32_t expip);
 
 typedef char* (*rep_callback_t)(void* data, size_t* size);
-typedef size_t (*ipfix_collector_report_t)(const void* buf, uint32_t count, char* out,
+typedef size_t (*ipfix_collector_report_t)(const ipfix_query_pos_t* totals, int accending,
+										   const void* buf, uint32_t count, char* out,
 										   size_t maxsize, rep_callback_t callback, void* obj);
 
 #endif /* FLOW_IPFIX_H_ */

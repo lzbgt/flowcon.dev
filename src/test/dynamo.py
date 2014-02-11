@@ -32,19 +32,55 @@ class Srcs(object):
     
 def playback(fname):
     #fields = {'8': ['1.2.3.4/24', '1.2.4.6', '*'], '12':'*'}
+    #fields = {'130': ['198.154.124.14', '*'], '12':['199.71.142.189', '*']}
     fields = {'130': '*', '12':'*'}
     #fields = {'130': ['1.2.3.4/24', '1.2.4.6']}
 
     with open(fname) as f:
         collect = cPickle.load(f)
         
+    periodic(collect, fields)
+    #raw(collect, fields)
+        
+def raw(collect, fields):
+    srcs = Srcs()
+    
+    rq = native.dynamo.genraw(fields)
+    
+    def onmsg(msg):
+        print msg
+
+    rq.setcallback(onmsg)
+    
+    receiver = native.receiver.recmod.Receiver(srcs)
+        
+    receiver.register(rq)
+   
+    consume(collect, receiver, srcs)
+    
+    #rq.testflow(0x01020406)
+
+def periodic(collect, fields):
     srcs = Srcs()
         
     rq = native.dynamo.genper(fields)
     qbuf = native.dynamo.qmod.QueryBuffer()
     
     receiver = native.receiver.recmod.Receiver(srcs)
+    
+    stamp = consume(collect, receiver, srcs)
+    
+    secset = []
+    for ip, s in srcs._srcs.items():
+        if rq.matchsource(ip) == 0: continue
+        _, _, secs = s.getcollectors()
+        secset.append(secs)
 
+    rq.runseconds(qbuf, secset, stamp-2)
+    
+    print rq.report(qbuf, 'bytes', 'max', 10)
+
+def consume(collect, receiver, srcs):
     dkeys = sorted(collect.keys())
     prevstamp = native.query.mkstamp(dkeys[0])
     for d in sorted(collect.keys()):
@@ -54,17 +90,9 @@ def playback(fname):
             srcs.on_time(stamp)
             prevstamp = stamp
         receiver.receive(buf, len(buf))
-    
-    secset = []
-    for ip, s in srcs._srcs.items():
-        if rq.matchsource(ip) == 0: continue
-        _, _, secs = s.getcollectors()
-        secset.append(secs)
 
-    rq.runseconds(qbuf, secset, prevstamp-2)
+    return prevstamp
     
-    #rq.testflow(0x01020406)
-
 def capture(fname, addr):
     p = urlparse.urlsplit(addr)
     if not p.scheme or p.scheme.lower() != 'udp':

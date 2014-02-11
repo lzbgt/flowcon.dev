@@ -4,7 +4,7 @@ Created on Jan 28, 2014
 @author: schernikov
 '''
 
-import datetime, dateutil.tz
+import datetime, dateutil.tz, sys
 
 import native.types as ntypes, native.dynamo, calendar
 import flowtools.logger as logger 
@@ -85,6 +85,10 @@ class Query(object):
 
     def value(self):
         return self._qry
+    
+    @property
+    def id(self):
+        return self._native.id()
 
 class QueryBuffer(object):
     def __init__(self):
@@ -99,15 +103,12 @@ class RawQuery(Query):
     def native(self):
         return self._native
     
-    @property
-    def id(self):
-        return self._native.id()
-    
     def is_live(self):
         return True
 
 def mkstamp(d):
     return int(calendar.timegm(d.timetuple()))
+
 
 class PeriodicQuery(Query):
     vicinity = 0.1 # seconds
@@ -121,6 +122,36 @@ class PeriodicQuery(Query):
         self._prevstamp = mkstamp(now) 
         self._sources = set()
         self._seconds = []
+        self._shape = self._on_shape(shape)
+
+    def _on_shape(self, shape):
+        if not shape: return None
+        field = shape.get('max', None)
+        if field is None:
+            field = shape.get('min', None)
+            if field is None:
+                logger.dump("no shape function defined")
+                return (None, None, 0)
+            direction = 'min'
+        else:
+            direction = 'max'
+
+        if self.bytestp.name != field and self.packetstp.name != field:
+            logger.dump("unexpected sort field '%s'"%field)
+            return (None, None, 0)
+
+        count = shape.get('count', 0)
+        try:
+            count = int(count)
+        except:
+            logger.dump("unexpected count field '%s'"%(count))
+            return (None, None, 0)
+
+        if count < 0:
+            logger.dump("negative count field '%d'"%(count))
+            return (None, None, 0)
+        
+        return field, direction, count
         
     def is_live(self):
         return True
@@ -132,17 +163,14 @@ class PeriodicQuery(Query):
         self._seconds.append(sec)
 
     def on_time(self, qbuf, now, stamp):
-        if self._next > now: return
+        if self._next > now: return None
         self._next = now + self._period
         
         self._native.runseconds(qbuf._native, self._seconds, self._prevstamp)
-
+        
         self._prevstamp = stamp
         
-        self._report()
-
-    def _report(self):
-        self
+        return self._native.report(qbuf._native, *self._shape)
 
 class FlowQuery(Query):
     
@@ -177,7 +205,7 @@ def tostamp(stamp):
     return str(stamp.replace(tzinfo=tzutc))
 
 def _cleanuptimefields(fields):
-    for ftype in ntypes.TimeType.timetypes:
+    for ftype in ntypes.TimeType.timetypes.values():
         if ftype.id in fields:
             logger.dump("ignoring `%s`[%s] field in query"%(ftype.name, ftype.id))
             del fields[ftype.id]

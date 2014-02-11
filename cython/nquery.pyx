@@ -104,23 +104,36 @@ cdef class QueryBuffer(object):
         self._extradata = <char*>arr.data
 
     @cython.boundscheck(False)
-    cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t sizehint):
+    cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t offset, uint32_t sizehint):
         cdef uint32_t size = self._entries.size
         self._width = width
+        self._offset = offset
+        
+        if (self._offset+sizeof(uint64_t)*2) > self._width:
+            raise Exception("invalid offset provided: offset:%d width:%d"%(self._offset, self._width))        
+        
         self._buf.count = size/width
 
         self._positions.bufpos = 1  # position 0 is illegal, let's make sure it's not taken and not used 
         self._positions.countpos = 0
+        self._positions.totbytes = 0
+        self._positions.totpackets = 0
     
         cdef int bits = int(np.math.log(2*sizehint-1, 2))
         cdef int indsize = 2**bits
+        cdef int bytesize = sizeof(uint32_t)*indsize
         
-        if (sizeof(uint32_t)*indsize) > self._extras.size:
-            self._extraresize(sizeof(uint32_t)*indsize)
+        if bytesize > self._extras.size:
+            self._extraresize(bytesize)
+        
+        self._extras[:bytesize].fill(0)
         
         self._buf.poses = <uint32_t*>self._extradata
         self._buf.mask = 2**bits-1
         
+        return cython.address(self._buf)
+
+    cdef const ipfix_query_buf* getbuf(self):
         return cython.address(self._buf)
 
     @cython.boundscheck(False)
@@ -137,21 +150,64 @@ cdef class QueryBuffer(object):
         return self._extradata
 
     @cython.boundscheck(False)
-    cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter):
+    cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter, int field, int slice):
         cdef bytes result
         cdef size_t printed
-        cdef uint32_t count, size = self._extras.size
+        cdef uint32_t count, size = self._extras.size, first
         cdef char* input
+        cdef eview
+        cdef uint32_t suffix
+        cdef dtype
+        cdef int accending = 1
 
         self._buf.poses = NULL
         self._buf.mask = 0
 
         count = self._positions.bufpos
         if count <= 1: return <bytes>''
-        count -= 1
-        input = <char*>self._buf.data+self._width # skip first entry; it is never used
+        first = 1
+        
+        if field > 0:
+            suffix = self._width - (self._offset+sizeof(uint64_t)*2)
+            dtype = [('cont',    'a%d'%(self._offset)),
+                     ('bytes',   'u8'),
+                     ('packets', 'u8')]
 
-        printed = reporter(input, count, self._extradata, size, repcallback, <void*>self)
+            fnm  = dtype[field][0]
+
+            if suffix > 0: dtype.append(('suffix',  'a%d'%(suffix)))
+            eview = self._entries[self._width:(count*self._width)].view(dtype=dtype)
+            
+            if slice != 0:
+                if slice > 0:   # max elements needed
+                    if slice < eview.size:
+                        first = eview.size-slice    # first in eview array
+                        eview.partition(first, order=[fnm])
+                        eview[first:].sort(order=[fnm])
+                        first += 1  # skip first in original array
+                    else:
+                        slice = eview.size
+                        eview.sort(order=[fnm])
+                    accending = 0       # should be reported in descending order
+                else:           # min elements needed
+                    slice = -slice
+                    if slice < eview.size:
+                        eview.partition(slice-1, order=[fnm])
+                        eview[:slice].sort(order=[fnm])
+                    else:
+                        slice = eview.size
+                        eview.sort(order=[fnm])
+            else:
+                slice = count-1 # all except first
+        else:
+            slice = count-1 # all except first
+                
+        input = <char*>self._buf.data + first*self._width # skip first entry; it is never used
+
+        printed = reporter(cython.address(self._positions), accending, 
+                           input, slice, 
+                           self._extradata, size, 
+                           repcallback, <void*>self)
         if printed <= 0:
             return <bytes>('{"error":"can not print %d collected entries"}'%(count))
 
@@ -173,6 +229,13 @@ cdef class QueryBuffer(object):
         self._buf.data = <void*>arr.data
         self._buf.count = size/self._width
         
+    def status(self):
+        return {"entrybuf":self._entries.size,
+                "extrabuf":self._extras.size,
+                "counts":{"collected":self._positions.bufpos-1,
+                          "bytes":self._positions.totbytes,
+                          "packets":self._positions.totpackets}}
+        
 cdef char* repcallback(void* data, size_t* size_p):
     cdef QueryBuffer qbuf = <QueryBuffer>data
     return qbuf.repcallback(size_p)
@@ -187,34 +250,63 @@ cdef class PeriodicQuery(Query):
         if err != NULL:
             raise Exception("Can not load symbol %s from %s: %s"%(expname, modname, err))        
         
-        cdef bytes widthname = <bytes>"fwidth_%s"%(qid)
-        cdef uint32_t* wptr = <uint32_t*>dlsym(self.mod, widthname)
-        
-        if self.expchecker is NULL or wptr is NULL:
+        if self.expchecker is NULL:
             raise Exception("Can not load source checker function call")
-
-        self._width = cython.operator.dereference(wptr)
-        if self._width == 0 or self._width > 1000:
-            raise Exception("Unexpected width for query results: %d"%(self._width))
+        
+        self._width = self._getvalue('width', qid)
+        self._offset = self._getvalue('offset', qid)
         
         self._sizehint = minbufsize
+        
+    cdef uint32_t _getvalue(self, const char* nm, const char* qid):
+        cdef bytes widthname = <bytes>("f%s_%s"%(nm, qid))
+        cdef uint32_t* wptr = <uint32_t*>dlsym(self.mod, widthname)
+        
+        if wptr is NULL:
+            raise Exception("Can not load %s value"%(nm))
+
+        cdef uint32_t val = cython.operator.dereference(wptr)
+        if val == 0 or val > 1000:
+            raise Exception("Unexpected %s for query results: %d"%(nm, val))
+        
+        return val
 
     @cython.boundscheck(False)
     def matchsource(self, long ip):
         if self.expchecker(ip) != 0: return True
         return False
         
+    @cython.boundscheck(False)
     def runseconds(self, QueryBuffer qbuf, secset, uint64_t stamp):
         cdef SecondsCollector sec
         
-        cdef const ipfix_query_buf* buf = qbuf.init(self._width, self._sizehint)
+        cdef const ipfix_query_buf* buf = qbuf.init(self._width, self._offset, self._sizehint)
         
         for sec in secset:
             sec.collect(self, qbuf, stamp, <void*>buf)
 
-        cdef bytes result = qbuf.onreport(buf, <ipfix_collector_report_t>self.reporter)
+    @cython.boundscheck(False)
+    def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
+        cdef const ipfix_query_buf* buf = qbuf.getbuf()
+        cdef int fld, slice
         
-        return results
+        if field == 'bytes':
+            fld = 1
+        elif field == 'packets':
+            fld = 2
+        else:
+            fld = 0
+
+        if dir == 'min':
+            slice = -count
+        elif dir == 'max':
+            slice = count
+        else:
+            slice = 0
+
+        cdef bytes result = qbuf.onreport(buf, <ipfix_collector_report_t>self.reporter, fld, slice)
+
+        return result
 
     @cython.boundscheck(False)
     cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip, void* data) nogil:

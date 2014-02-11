@@ -108,6 +108,8 @@ cdef extern from "ipfix.h":
     cdef struct ipfix_query_pos:
         long    bufpos
         long    countpos
+        long    totbytes
+        long    totpackets        
         
     ctypedef void (*ipfix_collector_call_t)(const ipfix_query_buf* buf, 
                                             const ipfix_query_info* info,
@@ -115,5 +117,7 @@ cdef extern from "ipfix.h":
                                             uint32_t expip) nogil
 
     ctypedef char* (*rep_callback_t)(void* data, size_t* size)
-    ctypedef size_t (*ipfix_collector_report_t)(const void* buf, uint32_t count, char* out,
-                                              size_t maxsize, rep_callback_t callback, void* obj) nogil
+    ctypedef size_t (*ipfix_collector_report_t)(const ipfix_query_pos* totals, int accending, 
+                                                const void* buf, uint32_t count, 
+                                                char* out, size_t maxsize, 
+                                                rep_callback_t callback, void* obj) nogil

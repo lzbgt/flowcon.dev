@@ -46,7 +46,12 @@ class FlowProc(connector.Connection):
             source.on_time(stamp)
             
         for per in self._periodic.values():
-            per.on_time(self._nbuf, now, stamp)
+            res = per.on_time(self._nbuf, now, stamp)
+            if res:
+                qrec = self._long_queries.get(per.id, None)
+                if qrec:
+                    for addr in qrec.aset:
+                        self.send_multipart([addr, res])
 
     def onnewsource(self, src):
         print "created %s"%(src.name)
@@ -78,14 +83,15 @@ class FlowProc(connector.Connection):
         
         query = qry.get('query', None)
         if query:
-            #TODO pretty ugly design here; connections, queries, sources has to be rewritten
-            logger.dump("got query from %s (hb:%ds):\n%s\n"%([addr], hb, pprint.pformat(query)))
-
             try:
                 q = querymod.Query.create(query)
             except Exception, e:
+                import traceback
+                traceback.print_exc()
                 logger.dump("bad query: %s from %s (hb:%ds): %s"%(query, [addr], hb, str(e)))
                 return
+
+            logger.dump("got query %s from %s (hb:%ds):\n%s\n"%(q.id, [addr], hb, pprint.pformat(query)))
             
             if q.is_live():
                 self._register(q, addr)
