@@ -15,7 +15,7 @@ cimport numpy as np
 
 from common cimport *
 from misc cimport logger, showflow, showattr
-from nquery cimport PeriodicQuery
+from nquery cimport FlowQuery
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
 
@@ -190,7 +190,7 @@ cdef class SecondsCollector(object):
         return self._seconds[secpos]
 
     @cython.boundscheck(False)
-    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, 
+    cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
                       uint64_t neweststamp, uint64_t oldeststamp, void* data) nogil:
 
         cdef uint32_t oldestpos, lastpos

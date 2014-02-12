@@ -42,6 +42,12 @@ def genraw(fields):
     return dynbuilder.build(vres, genrawsource, qmod.RawQuery, 'R')
 
 def genflow(fields):
+    return gentimeflow(fields, genflowsource, qmod.FlowQuery, 'F')
+
+def gentime(fields):
+    return gentimeflow(fields, gentimesource, qmod.FlowQuery, 'T')
+    
+def gentimeflow(fields, gencall, gencls, gennm):
     expnm = '130'
     exporter = fields.get(expnm, None)
     lss = set()
@@ -56,11 +62,13 @@ def genflow(fields):
         vres = validate(fields)
 
     def gensource(*args):
-        genflowsource(cs, lss, *args)
+        gencall(cs, lss, *args)
     
-    return dynbuilder.build(vres, gensource, qmod.PeriodicQuery, 'P')
+    return dynbuilder.build(vres, gensource, gencls, gennm)
 
-   
+def gentimesource(explns, explss, f, qid, css, lss, s):
+    pass
+
 def genflowsource(explns, explss, f, qid, css, lss, s):
     writehead(f, s)
     

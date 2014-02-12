@@ -240,10 +240,10 @@ cdef char* repcallback(void* data, size_t* size_p):
     cdef QueryBuffer qbuf = <QueryBuffer>data
     return qbuf.repcallback(size_p)
         
-cdef class PeriodicQuery(Query):
+cdef class FlowQuery(Query):
 
     def __init__(self, const char* modname, const char* qid):
-        super(PeriodicQuery, self).__init__(modname, qid)
+        super(FlowQuery, self).__init__(modname, qid)
         cdef bytes expname = <bytes>"fexporter_%s"%(qid)
         self.expchecker = <fexpchecktype>dlsym(self.mod, expname)
         err = dlerror()

@@ -83,6 +83,17 @@ class Query(object):
             if cnt.id in fields: del fields[cnt.id]
 #        self._chks, self._reps = _fieldlist(self.counters, fields)
 
+    def _assigntime(self, newest, oldest):
+        if not newest:
+            now = datetime.datetime.utcnow()
+            self._newest = mkstamp(now)
+        else:
+            self._newest = mkstamp(newest)+1 # include newest second into consideration
+        if not oldest:
+            self._oldest = 0
+        else:
+            self._oldest = mkstamp(oldest)
+
     def value(self):
         return self._qry
     
@@ -183,15 +194,7 @@ class FlowQuery(FQuery):
     
     def __init__(self, qry, fields, shape, newest, oldest):
         super(FlowQuery, self).__init__(qry, fields, shape)
-        if not newest:
-            now = datetime.datetime.utcnow()
-            self._newest = mkstamp(now)
-        else:
-            self._newest = mkstamp(newest)+1 # include newest second into consideration
-        if not oldest:
-            self._oldest = 0
-        else:
-            self._oldest = mkstamp(oldest)
+        self._assigntime(newest, oldest)
     
     def is_live(self):
         return False
@@ -208,6 +211,13 @@ class FlowQuery(FQuery):
         return self._native.report(qbuf._native, *self._shape)
 
 class RangeQuery(Query):
+
+    def __init__(self, qry, fields, newest, oldest):
+        super(RangeQuery, self).__init__(qry, fields)
+
+        self._native = native.dynamo.gentime(fields)
+                
+        self._assigntime(newest, oldest)
 
     def is_live(self):
         return False    
