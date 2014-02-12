@@ -277,13 +277,13 @@ cdef class PeriodicQuery(Query):
         return False
         
     @cython.boundscheck(False)
-    def runseconds(self, QueryBuffer qbuf, secset, uint64_t stamp):
+    def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp):
         cdef SecondsCollector sec
         
         cdef const ipfix_query_buf* buf = qbuf.init(self._width, self._offset, self._sizehint)
         
         for sec in secset:
-            sec.collect(self, qbuf, stamp, <void*>buf)
+            sec.collect(self, qbuf, newstamp, oldstamp, <void*>buf)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):

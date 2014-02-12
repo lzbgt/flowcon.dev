@@ -63,7 +63,7 @@ def raw(collect, fields):
 def periodic(collect, fields):
     srcs = Srcs()
         
-    rq = native.dynamo.genper(fields)
+    rq = native.dynamo.genflow(fields)
     qbuf = native.dynamo.qmod.QueryBuffer()
     
     receiver = native.receiver.recmod.Receiver(srcs)
@@ -76,7 +76,7 @@ def periodic(collect, fields):
         _, _, secs = s.getcollectors()
         secset.append(secs)
 
-    rq.runseconds(qbuf, secset, stamp-2)
+    rq.runseconds(qbuf, secset, stamp, stamp-2)
     
     print rq.report(qbuf, 'bytes', 'max', 10)
 

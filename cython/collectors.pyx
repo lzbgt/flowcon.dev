@@ -151,23 +151,12 @@ cdef class SecondsCollector(object):
         self._currentsec = current
     
     @cython.boundscheck(False)
-    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp, void* data) nogil:
-        cdef uint32_t secpos = self._currentsec
-        cdef uint32_t prevpos, oldestpos, lastpos = self._seconds[secpos]
-        cdef uint64_t prevstamp, stamp = self._stamps[secpos]
-
-        # TMP
-#        with gil:
-#            print "  collecting: stamp:%d oldstamp:%d curpos:%d"%(stamp, oldeststamp, secpos)
-##            for x in range(100):
-##                print "    [%2d] %10d %10d"%(x, self._stamps[x], self._seconds[x])
-#            sys.stdout.flush()
-        #
-
-        if stamp <= oldeststamp: return     # current or future seconds are not available yet
-
+    cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil:
         # seconds may not be evenly distributed; lets jump to approximate location and then lookup
-        cdef uint64_t seconds = stamp - oldeststamp
+        cdef uint32_t prevpos, secpos = self._currentsec
+        cdef uint64_t stamp = self._stamps[self._currentsec]
+        cdef uint64_t prevstamp, seconds = stamp - oldeststamp
+
         if secpos < seconds:
             if seconds >= self._depth:
                 secpos += 1 # just get oldest we have
@@ -177,12 +166,6 @@ cdef class SecondsCollector(object):
         else:
             secpos -= seconds
 
-        # TMP
-#        with gil:
-#            print "  secpos estim: %d"%(secpos)
-#            sys.stdout.flush()
-        #
-        
         stamp = self._stamps[secpos]
         if stamp <= oldeststamp:
             # look forward; we will find something >= oldeststamp for sure since current stamp is bigger
@@ -204,11 +187,26 @@ cdef class SecondsCollector(object):
                 if stamp >= prevstamp: break
             secpos = prevpos               # this is last known good position
 
-        # TMP
-#        with gil:
-#            print "  secpos: %d"%(secpos)
-#            sys.stdout.flush()
-        #
+        return self._seconds[secpos]
+
+    @cython.boundscheck(False)
+    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, 
+                      uint64_t neweststamp, uint64_t oldeststamp, void* data) nogil:
+
+        cdef uint32_t oldestpos, lastpos
+        cdef uint64_t currentstamp = self._stamps[self._currentsec]
+
+        if currentstamp <= oldeststamp: return      # current or future seconds are not available yet
+
+        if neweststamp > currentstamp: 
+            neweststamp = currentstamp              # can not go into future
+            lastpos = self._seconds[self._currentsec]
+        elif neweststamp > oldeststamp:             # there is something to collect
+            lastpos = self._lookup(neweststamp)     # newest is also back in history somewhere
+        else:
+            return                                  # nothing to collect
+            
+        oldestpos = self._lookup(oldeststamp)
 
         # here we have secpos pointing to proper position where we need to start collection
 
@@ -219,14 +217,6 @@ cdef class SecondsCollector(object):
         
         qinfo.flows = <ipfix_store_flow*>self._flows.entryset
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
-        
-        oldestpos = self._seconds[secpos]
-
-        # TMP
-#        with gil:
-#            print "  lastpos: %d oldestpos: %d"%(lastpos, oldestpos)
-#            sys.stdout.flush()
-        #
         
         if lastpos >= oldestpos:  # one chunk of data
             if lastpos > oldestpos:

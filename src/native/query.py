@@ -4,7 +4,7 @@ Created on Jan 28, 2014
 @author: schernikov
 '''
 
-import datetime, dateutil.tz, sys
+import datetime, dateutil.tz
 
 import native.types as ntypes, native.dynamo, calendar
 import flowtools.logger as logger 
@@ -110,20 +110,13 @@ def mkstamp(d):
     return int(calendar.timegm(d.timetuple()))
 
 
-class PeriodicQuery(Query):
-    vicinity = 0.1 # seconds
-    
-    def __init__(self, qry, fields, shape, period):
-        super(PeriodicQuery, self).__init__(qry, fields)
-        self._native = native.dynamo.genper(fields)
-        self._period = datetime.timedelta(seconds=(period-self.vicinity))
-        now = datetime.datetime.utcnow()
-        self._next = now+self._period
-        self._prevstamp = mkstamp(now) 
-        self._sources = set()
-        self._seconds = []
-        self._shape = self._on_shape(shape)
+class FQuery(Query):
+    def __init__(self, qry, fields, shape):
+        super(FQuery, self).__init__(qry, fields)
+        self._native = native.dynamo.genflow(fields)
 
+        self._shape = self._on_shape(shape)
+        
     def _on_shape(self, shape):
         if not shape: return None
         field = shape.get('max', None)
@@ -152,9 +145,20 @@ class PeriodicQuery(Query):
             return (None, None, 0)
         
         return field, direction, count
+
+class PeriodicQuery(FQuery):
+    vicinity = 0.1 # seconds
+    
+    def __init__(self, qry, fields, shape, period):
+        super(PeriodicQuery, self).__init__(qry, fields, shape)
+
+        self._period = datetime.timedelta(seconds=(period-self.vicinity))
+        now = datetime.datetime.utcnow()
+        self._next = now+self._period
+        self._prevstamp = mkstamp(now) 
         
-    def is_live(self):
-        return True
+        self._sources = set()
+        self._seconds = []
 
     def addsource(self, src):
         if not self._native.matchsource(src.ip): return
@@ -162,20 +166,46 @@ class PeriodicQuery(Query):
         _, _, sec = src.getcollectors()
         self._seconds.append(sec)
 
+    def is_live(self):
+        return True
+
     def on_time(self, qbuf, now, stamp):
         if self._next > now: return None
         self._next = now + self._period
         
-        self._native.runseconds(qbuf._native, self._seconds, self._prevstamp)
+        self._native.runseconds(qbuf._native, self._seconds, stamp, self._prevstamp)
         
         self._prevstamp = stamp
         
         return self._native.report(qbuf._native, *self._shape)
 
-class FlowQuery(Query):
+class FlowQuery(FQuery):
+    
+    def __init__(self, qry, fields, shape, newest, oldest):
+        super(FlowQuery, self).__init__(qry, fields, shape)
+        if not newest:
+            now = datetime.datetime.utcnow()
+            self._newest = mkstamp(now)
+        else:
+            self._newest = mkstamp(newest)+1 # include newest second into consideration
+        if not oldest:
+            self._oldest = 0
+        else:
+            self._oldest = mkstamp(oldest)
     
     def is_live(self):
         return False
+    
+    def collect(self, qbuf, sources):
+        seconds = []
+        
+        for src in sources:
+            _, _, sec = src.getcollectors()
+            seconds.append(sec)
+
+        self._native.runseconds(qbuf._native, seconds, self._newest, self._oldest)
+        
+        return self._native.report(qbuf._native, *self._shape)
 
 class RangeQuery(Query):
 

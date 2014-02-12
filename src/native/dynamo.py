@@ -41,7 +41,7 @@ def genraw(fields):
     vres = validate(fields)
     return dynbuilder.build(vres, genrawsource, qmod.RawQuery, 'R')
 
-def genper(fields):
+def genflow(fields):
     expnm = '130'
     exporter = fields.get(expnm, None)
     lss = set()
@@ -56,12 +56,12 @@ def genper(fields):
         vres = validate(fields)
 
     def gensource(*args):
-        genpersource(cs, lss, *args)
+        genflowsource(cs, lss, *args)
     
     return dynbuilder.build(vres, gensource, qmod.PeriodicQuery, 'P')
 
    
-def genpersource(explns, explss, f, qid, css, lss, s):
+def genflowsource(explns, explss, f, qid, css, lss, s):
     writehead(f, s)
     
     colltypename = 'Collection'

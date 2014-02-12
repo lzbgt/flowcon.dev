@@ -97,8 +97,8 @@ class FlowProc(connector.Connection):
                 self._register(q, addr)
                 arec.add(q.id)
             else:
-                res = q.collect_sources(self._nreceiver.sources())
-                self._send(addr, res)
+                res = q.collect(self._nbuf, self._nreceiver.sources())
+                self.send_multipart([addr, res])
 
             return
         stat = qry.get('status', None)

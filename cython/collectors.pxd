@@ -53,4 +53,6 @@ cdef class SecondsCollector(object):
     cdef void _alloc(self, uint32_t size)
     cdef void _grow(self)
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos)
-    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, uint64_t oldeststamp, void* data) nogil
+    cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil
+    cdef void collect(self, PeriodicQuery q, QueryBuffer bufinfo, 
+    				  uint64_t neweststamp, uint64_t oldeststamp, void* data) nogil
