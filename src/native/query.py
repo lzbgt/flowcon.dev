@@ -7,7 +7,7 @@ Created on Jan 28, 2014
 import datetime, dateutil.tz
 
 import native.types as ntypes, native.dynamo, calendar
-import flowtools.logger as logger 
+import flowtools.logger as logger, flowtools.settings 
 
 tzutc = dateutil.tz.tzutc()
 
@@ -44,7 +44,7 @@ class Query(object):
     counters = (bytestp, packetstp)
 
     @classmethod
-    def create(cls, qry):
+    def create(cls, qry, history):
         flow = qry.get('flows', None)
         if flow is None: raise Exception("missing expected 'flow' attribute")
         fields = flow.get('fields', None)
@@ -69,11 +69,12 @@ class Query(object):
         elif mode == 'flows':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
-            return FlowQuery(qry, fields, shape, newest, oldest)
+            return FlowQuery(qry, fields, shape, newest, oldest, history)
         elif mode == 'time':
             oldest = stamp2time(time.get('oldest', None))
             newest = stamp2time(time.get('newest', None))
-            return RangeQuery(qry, fields, newest, oldest)
+            step = _intfield(time.get('step', None))
+            return RangeQuery(qry, fields, newest, oldest, step, history)
 
         raise Exception("don't know what to do with 'time.mode==%s'"%(mode))
 
@@ -83,16 +84,58 @@ class Query(object):
             if cnt.id in fields: del fields[cnt.id]
 #        self._chks, self._reps = _fieldlist(self.counters, fields)
 
-    def _assigntime(self, newest, oldest):
+    def _assigntime(self, nowstamp, newest, oldest, oldesthistory):
         if not newest:
-            now = datetime.datetime.utcnow()
-            self._newest = mkstamp(now)
+            self._newest = nowstamp
         else:
-            self._newest = mkstamp(newest)+1 # include newest second into consideration
-        if not oldest:
-            self._oldest = 0
+            stamp = mkstamp(newest)
+            if stamp >= nowstamp:
+                self._newest = nowstamp
+            else:
+                self._newest = stamp+1 # include requested second into consideration
+
+        oldeststamp = mkstamp(oldesthistory)
+        if not oldest or oldest < oldesthistory:
+            self._oldest = oldeststamp
         else:
             self._oldest = mkstamp(oldest)
+            
+        if self._newest <= self._oldest:
+            raise Exception('Bad time specs. Oldest (%d) should be less than newest (%d).'%(self._oldest, self._newest))
+
+    def _mkschedule(self, step, history, nowstamp):
+        schedule = {}
+        # lets figure out if we need seconds at all
+        minutes = history.minutes()
+        newest = _mkunit(schedule, self._newest, self._oldest, step, history.seconds(), minutes)
+        if newest <= self._oldest: return schedule
+        # then minutes
+        hours = history.hours()
+        newest = _mkunit(schedule, newest, self._oldest, step, minutes, hours)
+        if newest <= self._oldest: return schedule
+        # then hours
+        days = history.days()
+        newest = _mkunit(schedule, newest, self._oldest, step, hours, days)
+        if newest <= self._oldest: return schedule
+
+        # everything else falls into days
+        schedule[days.name()] = (newest, self._oldest, step)
+
+        return schedule
+    
+    def collect(self, qbuf, sources):
+        self._native.initbuf(qbuf._native)
+
+        secset = self._schedule.get('seconds', None)
+        if secset:
+            seconds = []
+            for src in sources:
+                _, _, sec = src.getcollectors()
+                seconds.append(sec)
+    
+            self._native.runseconds(qbuf._native, seconds, *secset)
+        
+        return self._native.report(qbuf._native, *self._shape)
 
     def value(self):
         return self._qry
@@ -184,7 +227,7 @@ class PeriodicQuery(FQuery):
         if self._next > now: return None
         self._next = now + self._period
         
-        self._native.runseconds(qbuf._native, self._seconds, stamp, self._prevstamp)
+        self._native.runseconds(qbuf._native, self._seconds, stamp, self._prevstamp, 0)
         
         self._prevstamp = stamp
         
@@ -192,36 +235,52 @@ class PeriodicQuery(FQuery):
 
 class FlowQuery(FQuery):
     
-    def __init__(self, qry, fields, shape, newest, oldest):
+    def __init__(self, qry, fields, shape, newest, oldest, history):
         super(FlowQuery, self).__init__(qry, fields, shape)
-        self._assigntime(newest, oldest)
+        
+        nowstamp = history.seconds().now
+        
+        self._assigntime(nowstamp, newest, oldest, history.oldest())
+        #TODO change to max step later once minutes are available
+        step = 0
+
+        self._schedule = self._mkschedule(step, history, nowstamp)
     
     def is_live(self):
         return False
     
-    def collect(self, qbuf, sources):
-        seconds = []
-        
-        for src in sources:
-            _, _, sec = src.getcollectors()
-            seconds.append(sec)
-
-        self._native.runseconds(qbuf._native, seconds, self._newest, self._oldest)
-        
-        return self._native.report(qbuf._native, *self._shape)
+def stepsize(interval, units):
+    return max(int(round(1.0*interval/units/flowtools.settings.count)), 1)*units
 
 class RangeQuery(Query):
 
-    def __init__(self, qry, fields, newest, oldest):
+    def __init__(self, qry, fields, nwst, odst, step, history):
         super(RangeQuery, self).__init__(qry, fields)
 
         self._native = native.dynamo.gentime(fields)
                 
-        self._assigntime(newest, oldest)
+        nowstamp = history.seconds().now
+        self._assigntime(nowstamp, nwst, odst, history.oldest())
+        
+        if step is None:
+            secdiff = self._newest - self._oldest
+            if secdiff <= flowtools.settings.maxseconds:
+                if secdiff <= 0:
+                    step = history.onesecond
+                else:
+                    step = stepsize(secdiff, history.onesecond)
+            elif secdiff <= flowtools.settings.maxminutes*history.oneminute:
+                step = stepsize(secdiff, history.oneminute)
+            elif secdiff <= flowtools.settings.maxhours*history.onehour:
+                step = stepsize(secdiff, history.onehour)
+            else:
+                step = history.oneday
+
+        self._schedule = self._mkschedule(step, history, nowstamp)
 
     def is_live(self):
-        return False    
-
+        return False
+    
 def stamp2time(stamp):
     if stamp is None: return None
     now = datetime.datetime.utcnow()
@@ -256,3 +315,32 @@ def _intfield(var):
     except:
         pass
     return None
+
+def _mkunit(schedule, newest, oldest, step, unit, nextunit):
+    nm = unit.name()
+
+    # this unit is completely out of scope    
+    if newest <= unit.oldest: return newest
+
+    if step < flowtools.settings.minunits*nextunit.one:
+        # seconds are needed for sure
+        if oldest >= unit.oldest:
+            # only seconds are needed
+            schedule[nm] = (newest, oldest, step)
+            return oldest
+        # step is small enough to go with seconds as far as possible
+        nextnewest = nextunit.fromstamp(unit.oldest)
+        if nextnewest < newest:
+            if (newest - nextnewest) > step*flowtools.settings.minunits: # if more than just couple of steps
+                schedule[nm] = (newest, nextnewest, step)
+            else:
+                schedule[nm] = (newest, nextnewest, 0)            # no steps, just one small chunk for seconds
+            return nextnewest             # setup new cut off time
+    # step is large enough; let's switch to minutes right away
+    nextnewest = nextunit.now
+    if newest > nextnewest and (newest - nextnewest) > unit.one*flowtools.settings.minunits:
+        # gap between newest time and newest minute is more than just couple of seconds
+        schedule[nm] = (newest, nextnewest, 0)
+        return nextnewest
+
+    return newest

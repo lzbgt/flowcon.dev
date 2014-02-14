@@ -9,10 +9,85 @@ import zmq, datetime, pprint
 from zmq.eventloop import ioloop
 ioloop.install()
 
-import connector, flowtools.logger as logger , native.query as querymod
+import connector, flowtools.logger as logger , flowtools.settings, native.query as querymod
 #import numpyfy.source as querymod
 import native.receiver
 
+class HUnit(object):
+    
+    def __init__(self, nm, seconds, count, stamp):
+        self._name = nm
+        self._one = seconds
+        self._now = self.fromstamp(stamp)
+        self._width = (count-1)*seconds
+        
+    @property
+    def one(self):
+        return self._one
+
+    def fromstamp(self, stamp):
+        return int(stamp/self._one)*self._one
+    
+    @property
+    def now(self):
+        return self._now
+    
+    @property
+    def oldest(self):
+        return self._now-self._width
+    
+    def tick(self, now):
+        self._now = now
+        
+    def name(self):
+        return self._name
+
+class History(object):
+    onesecond = 1
+    oneminute = 60
+    onehour = 3600
+    oneday = 86400
+
+    def __init__(self):
+        now = datetime.datetime.utcnow()
+        self._oldest = now
+        stamp = native.query.mkstamp(now)
+        self._second = HUnit('seconds', self.onesecond, flowtools.settings.maxseconds, stamp)
+        self._minute = HUnit('minutes', self.oneminute, flowtools.settings.maxminutes, stamp)
+        self._hour = HUnit('hours', self.onehour, flowtools.settings.maxhours, stamp)
+        self._day = HUnit('days', self.oneday, flowtools.settings.maxdays, stamp)
+
+    def oldest(self):
+        return self._oldest
+            
+    def tick(self):
+        now = datetime.datetime.utcnow()
+        stamp = native.query.mkstamp(now)
+        if self._second.now != stamp:
+            self._second.tick(stamp)
+            minute = self._minute.fromstamp(stamp)
+            if self._minute.now != minute:
+                self._minute.tick(minute)
+                hour = self._hour.fromstamp(stamp)
+                if self._hour.now != hour:
+                    self._hour.tick(hour)
+                    day = self._day.fromstamp(stamp)
+                    if self._day.now != day:
+                        self._day.tick(day)
+        return now
+    
+    def seconds(self):
+        return self._second
+    
+    def minutes(self):
+        return self._minute
+    
+    def hours(self):
+        return self._hour
+    
+    def day(self):
+        return self._day
+    
 class FlowProc(connector.Connection):
     def __init__(self, receiver):
         self._addresses = {}
@@ -20,6 +95,7 @@ class FlowProc(connector.Connection):
         self._periodic = {}
         self._nreceiver = receiver
         self._nbuf = native.query.QueryBuffer()
+        self._history = History()
         
         receiver.sourcecallback(self.onnewsource)
 
@@ -38,10 +114,12 @@ class FlowProc(connector.Connection):
              
     def on_time(self):
         # check for expired peers
-        now = datetime.datetime.utcnow()
+        now = self._history.tick()
+
         self._check_peers(now)
         
-        stamp = native.query.mkstamp(now)
+        stamp = self._history.seconds().now
+        
         for source in self._nreceiver.sources():
             source.on_time(stamp)
             
@@ -84,7 +162,7 @@ class FlowProc(connector.Connection):
         query = qry.get('query', None)
         if query:
             try:
-                q = querymod.Query.create(query)
+                q = querymod.Query.create(query, self._history)
             except Exception, e:
                 import traceback
                 traceback.print_exc()

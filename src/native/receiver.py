@@ -6,7 +6,7 @@ Created on Jan 24, 2014
 
 import socket, urlparse, datetime
 
-import native
+import native, flowtools.settings
 
 recmod = native.loadmod('nreceiver')
 colmod = native.loadmod('collectors')
@@ -69,7 +69,6 @@ class Receiver(object):
             self._nreceiver.unregister(qnat)
             
 class Sources(object):
-    maxseconds = 3600
 
     def __init__(self, ip):
         self._ip = ip
@@ -81,7 +80,7 @@ class Sources(object):
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._seconds = colmod.SecondsCollector("S:"+self._name, self._ip, self._flows, self.maxseconds, stamp)
+        self._seconds = colmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds

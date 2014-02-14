@@ -76,7 +76,7 @@ def periodic(collect, fields):
         _, _, secs = s.getcollectors()
         secset.append(secs)
 
-    rq.runseconds(qbuf, secset, stamp, stamp-2)
+    rq.runseconds(qbuf, secset, stamp, stamp-2, 0)
     
     print rq.report(qbuf, 'bytes', 'max', 10)
 

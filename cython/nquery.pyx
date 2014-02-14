@@ -277,13 +277,16 @@ cdef class FlowQuery(Query):
         return False
         
     @cython.boundscheck(False)
-    def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp):
+    def initbuf(self, QueryBuffer qbuf):
+        qbuf.init(self._width, self._offset, self._sizehint)
+
+    @cython.boundscheck(False)
+    def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
         cdef SecondsCollector sec
-        
-        cdef const ipfix_query_buf* buf = qbuf.init(self._width, self._offset, self._sizehint)
+        cdef const ipfix_query_buf* buf = qbuf.getbuf()
         
         for sec in secset:
-            sec.collect(self, qbuf, newstamp, oldstamp, <void*>buf)
+            sec.collect(self, qbuf, newstamp, oldstamp, step, <void*>buf)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
@@ -309,24 +312,26 @@ cdef class FlowQuery(Query):
         return result
 
     @cython.boundscheck(False)
-    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip, void* data) nogil:
+    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, void* data) nogil:
         cdef const ipfix_query_buf* buf = <ipfix_query_buf*>data
         cdef ipfix_query_pos* poses = bufinfo.getposes()
             
         poses.countpos = 0    # reset to start from first flow in info
 
         while True:
-            # TMP
-            #with gil:
-            #    print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
-            #    print "qinfo: count:%d"%(info.count)
-            #    print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
-            #
-            (<ipfix_collector_call_t>self.checker)(buf, info, poses, expip)
-            # TMP
-            #with gil:
-            #    print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
-            #            
+            #TMP
+#            with gil:
+#                import sys
+#                print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
+#                print "qinfo: count:%d"%(info.count)
+#                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
+#                sys.stdout.flush()
+            
+            (<ipfix_collector_call_t>self.checker)(buf, info, poses)
+            #TMP
+#            with gil:
+#                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
+#                sys.stdout.flush()
             
             if poses.countpos >= info.count: return # checker ran through all entries
 

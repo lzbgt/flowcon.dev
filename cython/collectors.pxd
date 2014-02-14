@@ -55,4 +55,6 @@ cdef class SecondsCollector(object):
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos)
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
-    				  uint64_t neweststamp, uint64_t oldeststamp, void* data) nogil
+    				  uint64_t neweststamp, uint64_t oldeststamp, uint32_t step, void* data) nogil
+    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, void* data, ipfix_query_info* qinfo,
+                       uint32_t oldestpos, uint32_t lastpos) nogil

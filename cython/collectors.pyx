@@ -132,7 +132,7 @@ cdef class SecondsCollector(object):
         
     @cython.boundscheck(False)
     def onsecond(self, uint64_t stamp):
-        cdef uint32_t newpos, next
+        cdef uint32_t newloc, next
         cdef uint32_t current = self._currentsec
         
         current += 1        # oldest seconds position
@@ -145,8 +145,8 @@ cdef class SecondsCollector(object):
             
         self._removeold(self._seconds[current], self._seconds[next])
         
-        newpos = <uint32_t>(((<uint64_t>self._last) - (<uint64_t>self._counterset))/sizeof(ipfix_store_counts))
-        self._seconds[current] = newpos
+        newloc = <uint32_t>(((<uint64_t>self._last) - (<uint64_t>self._counterset))/sizeof(ipfix_store_counts))
+        self._seconds[current] = newloc
         self._stamps[current] = stamp
         self._currentsec = current
     
@@ -154,7 +154,7 @@ cdef class SecondsCollector(object):
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil:
         # seconds may not be evenly distributed; lets jump to approximate location and then lookup
         cdef uint32_t prevpos, secpos = self._currentsec
-        cdef uint64_t stamp = self._stamps[self._currentsec]
+        cdef uint64_t stamp = self._stamps[secpos]
         cdef uint64_t prevstamp, seconds = stamp - oldeststamp
 
         if secpos < seconds:
@@ -187,72 +187,112 @@ cdef class SecondsCollector(object):
                 if stamp >= prevstamp: break
             secpos = prevpos               # this is last known good position
 
-        return self._seconds[secpos]
+        return secpos
 
     @cython.boundscheck(False)
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
-                      uint64_t neweststamp, uint64_t oldeststamp, void* data) nogil:
+                      uint64_t neweststamp, uint64_t oldeststamp, uint32_t step, void* data) nogil:
 
-        cdef uint32_t oldestpos, lastpos
-        cdef uint64_t currentstamp = self._stamps[self._currentsec]
+        cdef uint32_t curpos, oldestpos, lastpos = self._currentsec
+        cdef uint64_t currentstamp = self._stamps[lastpos]
 
         if currentstamp <= oldeststamp: return      # current or future seconds are not available yet
 
         if neweststamp > currentstamp: 
             neweststamp = currentstamp              # can not go into future
-            lastpos = self._seconds[self._currentsec]
         elif neweststamp > oldeststamp:             # there is something to collect
             lastpos = self._lookup(neweststamp)     # newest is also back in history somewhere
         else:
             return                                  # nothing to collect
             
         oldestpos = self._lookup(oldeststamp)
-
-        # here we have secpos pointing to proper position where we need to start collection
-
-        cdef ipfix_store_flow* flows = <ipfix_store_flow*>self._flows.entryset
-        cdef ipfix_store_attributes* attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
         cdef ipfix_query_info qinfo
         
         qinfo.flows = <ipfix_store_flow*>self._flows.entryset
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
-        if lastpos >= oldestpos:  # one chunk of data
-            if lastpos > oldestpos:
-                qinfo.first = self._counterset+oldestpos
-                qinfo.count = lastpos-oldestpos
-                q.collect(bufinfo, cython.address(qinfo), self._ip, data)
+        #TMP
+#        with gil:
+#            import sys
+#            print "current:%d[%d] newest:%d[%d] oldest:%d[%d] step:%d"%(currentstamp, self._currentsec, neweststamp, 
+#                                                                        lastpos, oldeststamp, oldestpos, step)
+#            sys.stdout.flush()
+#            
+#        #
+        
+        if step == 0:
+            self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
+        else:
+            neweststamp = self._stamps[lastpos]
+            oldeststamp = self._stamps[oldestpos]
+            currentstamp = oldeststamp+step
+            while currentstamp < neweststamp:
+                curpos = self._lookup(currentstamp)
+                currentstamp = self._stamps[curpos]
+                if currentstamp >= neweststamp: break
+                self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, curpos)
+                oldestpos = curpos
+                currentstamp = currentstamp+step
+                
+            self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
+
+    @cython.boundscheck(False)
+    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, void* data, ipfix_query_info* qinfo,
+                       uint32_t oldestpos, uint32_t lastpos) nogil:
+        cdef uint32_t oldestloc, lastloc
+
+        qinfo.stamp = self._stamps[lastpos]
+        qinfo.exporter = self._ip
+        
+        lastloc = self._seconds[lastpos]        
+        oldestloc = self._seconds[oldestpos]
+
+        #TMP
+#        with gil:
+#            import sys
+#            print "lastloc:%d oldloc:%d"%(lastloc, oldestloc)
+#            sys.stdout.flush()
+#            
+        #
+
+        # here we have secpos pointing to proper position where we need to start collection
+
+        if lastloc >= oldestloc:  # one chunk of data
+            if lastloc > oldestloc:
+                qinfo.first = self._counterset+oldestloc
+                qinfo.count = lastloc-oldestloc
+                q.collect(bufinfo, qinfo, data)
         else:
             # two chunks of data
             # collect older
-            qinfo.first = self._counterset+oldestpos
-            qinfo.count = self._depth-oldestpos
-            q.collect(bufinfo, cython.address(qinfo), self._ip, data)
+            qinfo.first = self._counterset+oldestloc
+            qinfo.count = self._maxcount-oldestloc
+            q.collect(bufinfo, qinfo, data)
             # collect newer
             qinfo.first = self._counterset
-            qinfo.count = lastpos
-            q.collect(bufinfo, cython.address(qinfo), self._ip, data)
+            qinfo.count = lastloc
+            q.collect(bufinfo, qinfo, data)
         
-    cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos):
+    cdef void _removeold(self, uint32_t lastloc, uint32_t nextloc):
         cdef ipfix_store_counts* start
         cdef uint32_t count
         # need to remove oldest seconds if we already have valid points
-        if lastpos == INVALID: return
+        if lastloc == INVALID: return
 
-        start = self._counterset+lastpos
-        if nextpos >= lastpos:
-            count = nextpos - lastpos
+        start = self._counterset+lastloc
+        if nextloc >= lastloc:
+            count = nextloc - lastloc
             if count > 0:
                 self._flows.remove(start, count)
         else:
             # it's split into two chunks; remove one then another 
-            count = self._maxcount-lastpos
+            count = self._maxcount-lastloc
             if count > 0:
                 self._flows.remove(start, count)
-            count = nextpos   # count = nextpos - 0
+            count = nextloc   # count = nextloc - 0
             if count > 0:
-                self._flows.remove(self._counterset, count) # from very beginning of buffer to nextpos
+                self._flows.remove(self._counterset, count) # from very beginning of buffer to nextloc
 
 cdef class Collector(object):
 

@@ -42,5 +42,5 @@ cdef class FlowQuery(Query):
 	cdef uint32_t _offset
 	cdef uint32_t _sizehint
 	
-	cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, uint32_t expip, void* data) nogil
+	cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, void* data) nogil
 	cdef uint32_t _getvalue(self, const char* nm, const char* qid)

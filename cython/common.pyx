@@ -98,6 +98,8 @@ cdef extern from "ipfix.h":
         long                           count
         const ipfix_store_flow*        flows
         const ipfix_store_attributes*  attrs
+        long                           stamp
+        long                           exporter
 
     cdef struct ipfix_query_buf:
         void*   data
@@ -113,8 +115,7 @@ cdef extern from "ipfix.h":
         
     ctypedef void (*ipfix_collector_call_t)(const ipfix_query_buf* buf, 
                                             const ipfix_query_info* info,
-                                            ipfix_query_pos* poses,
-                                            uint32_t expip) nogil
+                                            ipfix_query_pos* poses) nogil
 
     ctypedef char* (*rep_callback_t)(void* data, size_t* size)
     ctypedef size_t (*ipfix_collector_report_t)(const ipfix_query_pos* totals, int accending, 

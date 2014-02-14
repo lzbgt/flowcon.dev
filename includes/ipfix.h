@@ -117,12 +117,13 @@ typedef struct PACKED ipfix_query_info {
 	uint32_t 				  		count;
 	const ipfix_store_flow_t* 		flows;
 	const ipfix_store_attributes_t* attrs;
+	uint64_t						stamp;
+	uint32_t 				  		exporter;
 } ipfix_query_info_t;
 
 typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
 									   const ipfix_query_info_t* info,
-									   ipfix_query_pos_t* poses,
-									   uint32_t expip);
+									   ipfix_query_pos_t* poses);
 
 typedef char* (*rep_callback_t)(void* data, size_t* size);
 typedef size_t (*ipfix_collector_report_t)(const ipfix_query_pos_t* totals, int accending,

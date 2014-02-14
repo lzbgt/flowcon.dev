@@ -78,7 +78,8 @@ user	0m0.056s
 sys	0m0.016s
 
 #######################################
-time python -m test.query -i "tcp://10.1.32.196:5567" -m max -s bytes -c 10 --oldest 10000sending query:
+time python -m test.query -i "tcp://10.1.32.196:5567" -m max -s bytes -c 10 --oldest 10000
+sending query:
 {'heartbeat': 10,
  'query': {'flows': {'fields': {}, 'shape': {'count': 10, 'max': 'bytes'}},
            'time': {'mode': 'range', 'oldest': 10000}}}

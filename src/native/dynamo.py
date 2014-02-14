@@ -66,38 +66,7 @@ def gentimeflow(fields, gencall, gencls, gennm):
     
     return dynbuilder.build(vres, gensource, gencls, gennm)
 
-def gentimesource(explns, explss, f, qid, css, lss, s):
-    pass
-
-def genflowsource(explns, explss, f, qid, css, lss, s):
-    writehead(f, s)
-    
-    colltypename = 'Collection'
-    
-    f.write("typedef struct PACKED {\n")
-    
-    flowtypes = []
-    attrtypes = []
-    exptypes = []
-    for ftype in lss:
-        if ftype in query.Query.specialtuple:
-            continue
-        f.write("    uint%d_t %s;\n"%(ftype.size*8, ftype.name))
-        if ftype in query.Query.flowtuple:
-            flowtypes.append(ftype)
-        else:
-            attrtypes.append(ftype)
-
-    for expftype in explss:
-        f.write("    uint%d_t %s;\n"%(expftype.size*8, expftype.name))
-        exptypes.append(expftype)
-
-    f.write("} Values;\n")
-
-    writestructs(f, qid, colltypename)
-    
-    f.write('#include "flowgen.h"\n\n')
-    
+def writecheckers(f, css, qid, explns):
     flowchecks = {}
     attrchecks = {}
     for ck, cv in css.items():
@@ -120,21 +89,24 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
     wfunchead(f, qid, 'int fexporter', "uint32_t exporter")
     wcondition(f, explns)
     writecheckerend(f);
+    
+    return flowchecks, attrchecks
 
+def writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames):
     wfunchead(f, qid, 'void fcheck', "const ipfix_query_buf_t* buf",
                                      "const ipfix_query_info_t* info",
-                                     "ipfix_query_pos_t* poses",
-                                     "uint32_t exporter")
+                                     "ipfix_query_pos_t* poses")
     f.write("    %s* collect;\n    Values vals;\n"%(colltypename))
     f.write("    const ipfix_store_counts_t* firstcount = info->first;\n")
-    if flowtypes or attrtypes:
+    if flowtypes or attrtypes or flowchecks or attrchecks:
         f.write("    const ipfix_store_flow_t* firstflow = info->flows;\n")
-        if attrtypes:
+        if attrtypes or attrchecks:
             f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
     f.write("\n")
 
-    for etp in exptypes:
-        f.write("    vals.%s = %s;\n"%(etp.name, etp.name))
+    for enm in expnames:
+        f.write("    vals.%s = info->%s;\n"%(enm, enm))
+
     if not flowtypes and not attrtypes:
         wlookupcall(f, "    ")
     f.write("\n")
@@ -174,14 +146,66 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
         poses->countpos++;
     }\n""")
     writefunctail(f)
+
+def gentimesource(explns, explss, f, qid, css, lss, s):
+    writehead(f, s)
     
-    wfunchead(f, qid, 'size_t freport', "const ipfix_query_pos_t* totals", "int accending", "const void* buf", "uint32_t count", 
-                      "char* out","size_t maxsize", "rep_callback_t callback", "void* obj")
-    f.write("""
-    uint32_t i;
-    int num, step;
-    Collection* collection;
-    size_t size = maxsize;\n""")
+    colltypename = 'Collection'
+    stampname = 'stamp'
+
+    f.write("typedef struct PACKED {\n")
+    f.write("    uint64_t %s;\n"%(stampname))
+    f.write("} Values;\n")
+    
+    writestructs(f, qid, colltypename, False)
+
+    f.write('#include "timegen.h"\n\n')
+
+    flowchecks, attrchecks = writecheckers(f, css, qid, explns)
+    
+    writefcheck(f, qid, colltypename, None, None, flowchecks, attrchecks, [stampname])
+    
+    def repcall(f):
+        wsnprintf(f, "        ", r'"\"%d\"", collection->values.'+stampname)
+        return ''
+    
+    reportwriter(f, qid, False, repcall)
+    
+def genflowsource(explns, explss, f, qid, css, lss, s):
+    writehead(f, s)
+    
+    colltypename = 'Collection'
+    
+    f.write("typedef struct PACKED {\n")
+    
+    flowtypes = []
+    attrtypes = []
+    exptypes = []
+    for ftype in lss:
+        if ftype in query.Query.specialtuple:
+            continue
+        f.write("    uint%d_t %s;\n"%(ftype.size*8, ftype.name))
+        if ftype in query.Query.flowtuple:
+            flowtypes.append(ftype)
+        else:
+            attrtypes.append(ftype)
+
+    for expftype in explss:
+        f.write("    uint%d_t %s;\n"%(expftype.size*8, expftype.name))
+        exptypes.append(expftype)
+
+    f.write("} Values;\n")
+
+    writestructs(f, qid, colltypename, True)
+    
+    f.write('#include "flowgen.h"\n\n')
+    
+    flowchecks, attrchecks = writecheckers(f, css, qid, explns)
+
+    expnames = [etp.name for etp in exptypes]
+
+    writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames)
+    
     tlst = []
     hasip = False
     if lss or explss:
@@ -190,6 +214,21 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
         tlst = sorted(tlst, key=lambda l: l.id)
         for tp in tlst:
             if type(tp) == query.ntypes.IPType: hasip = True
+            
+    def repcall(f):
+        return flowreported(f, tlst)
+        
+    reportwriter(f, qid, hasip, repcall)
+    
+def reportwriter(f, qid, hasip, fillcall):
+    wfunchead(f, qid, 'size_t freport', "const ipfix_query_pos_t* totals", "int accending", "const void* buf", "uint32_t count", 
+                      "char* out","size_t maxsize", "rep_callback_t callback", "void* obj")
+    f.write("""
+    uint32_t i;
+    int num, step;
+    Collection* collection;
+    size_t size = maxsize;\n""")
+    
     if hasip:            
         f.write("    unsigned char* pip;\n")
     f.write("""
@@ -208,6 +247,19 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
     f.write("        } else {\n")
     wsnprintf(f, "            ", '",[["')
     f.write("        }\n")
+
+    totids = fillcall(f)
+
+    wsnprintf(f, "        ", r'"],[%llu,%llu]]", (LLUT)collection->bytes, (LLUT)collection->packets')
+    f.write("\n        collection += step;\n    }\n")
+    
+    wsnprintf(f, "    ", r'"],\"totals\":{\"counts\":[[%s],'%(totids)+
+                         r'[%llu,%llu]", (LLUT)totals->totbytes, (LLUT)totals->totpackets')
+    wsnprintf(f, "    ", r'"],\"entries\":%d}}", totals->bufpos-1')
+    f.write('    return maxsize-size;\n')    
+    writefunctail(f)
+
+def flowreported(f, tlst):
     totids = ''
     sep = ''
     for tp in tlst:
@@ -215,17 +267,10 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
             f.write("        pip = (unsigned char*)&collection->values.%s;\n"%(tp.name))
             wsnprintf(f, "        ", '"'+sep+r'\"%d.%d.%d.%d\"", pip[3], pip[2], pip[1], pip[0]')
         else:
-            wsnprintf(f, "        ", '"'+sep+r'"\"%d\"", collection->values.'+tp.name)
+            wsnprintf(f, "        ", '"'+sep+r'\"%d\"", collection->values.'+tp.name)
         totids += r'%s\"%s\"'%(sep, tp.id)
         sep = ','
-    wsnprintf(f, "        ", r'"],[%llu,%llu]]", (LLUT)collection->bytes, (LLUT)collection->packets')
-    f.write("\n        collection += step;\n        }\n")
-    
-    wsnprintf(f, "    ", r'"],\"totals\":{\"counts\":[[%s],'%(totids)+
-                         r'[%llu,%llu]", (LLUT)totals->totbytes, (LLUT)totals->totpackets')
-    wsnprintf(f, "    ", r'"],\"entries\":%d}}", totals->bufpos-1')
-    f.write('    return maxsize-size;\n')    
-    writefunctail(f)
+    return totids
 
 def wsnprintf(f, off, pargs):
     f.write("%sSNPRINTF(%s);\n"%(off, pargs))
@@ -237,17 +282,16 @@ def wlookupcall(f, off):
 %s    return;
 %s}"""%(off, off, off, off))
 
-def writestructs(f, qid, nm):
+def writestructs(f, qid, nm, nxt):
     f.write("""
 typedef struct PACKED %s_t %s;
 
-struct PACKED %s_t{
-    uint32_t     next;
+struct PACKED %s_t{%s
     Values       values;
     uint64_t     bytes;
     uint64_t     packets;
 };
-    """%(nm, nm, nm))
+    """%(nm, nm, nm, "\n    uint32_t     next;" if nxt else ""))
     f.write("\n")
     f.write('uint32_t fwidth_%s = sizeof(%s);\n'%(qid, nm))
     f.write("\n")
