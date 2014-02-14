@@ -109,6 +109,7 @@ cdef extern from "ipfix.h":
 
     cdef struct ipfix_query_pos:
         long    bufpos
+        long    curpos
         long    countpos
         long    totbytes
         long    totpackets        

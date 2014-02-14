@@ -166,7 +166,20 @@ def gentimesource(explns, explss, f, qid, css, lss, s):
     writefcheck(f, qid, colltypename, None, None, flowchecks, attrchecks, [stampname])
     
     def repcall(f):
-        wsnprintf(f, "        ", r'"\"%d\"", collection->values.'+stampname)
+        f.write('        {\n')
+        f.write('            char tmbuf[80];\n')
+        f.write('            struct tm tmstamp;\n')
+        f.write('            time_t timestamp = (time_t)collection->values.%s;\n'%(stampname))
+        f.write('            if(gmtime_r(&timestamp, &tmstamp) == NULL){\n')
+        wsnprintf(f, "                ", r'"\"%llu\"", (LLUT)collection->values.'+stampname)
+        f.write('            } else {\n')
+        f.write('                if (strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S+00:00", &tmstamp) == 0) {\n')
+        wsnprintf(f, "                    ", r'"\"%llu\"", (LLUT)collection->values.'+stampname)
+        f.write('                } else {\n')
+        wsnprintf(f, "                    ", r'"\"%s\"", tmbuf')
+        f.write('                }\n')
+        f.write('            }\n')
+        f.write('        }\n')
         return ''
     
     reportwriter(f, qid, False, repcall)

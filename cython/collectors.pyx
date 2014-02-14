@@ -194,12 +194,12 @@ cdef class SecondsCollector(object):
                       uint64_t neweststamp, uint64_t oldeststamp, uint32_t step, void* data) nogil:
 
         cdef uint32_t curpos, oldestpos, lastpos = self._currentsec
-        cdef uint64_t currentstamp = self._stamps[lastpos]
+        cdef uint64_t nwstamp, currentstamp = self._stamps[lastpos]
 
         if currentstamp <= oldeststamp: return      # current or future seconds are not available yet
 
         if neweststamp > currentstamp: 
-            neweststamp = currentstamp              # can not go into future
+            pass                                    # can not go into future
         elif neweststamp > oldeststamp:             # there is something to collect
             lastpos = self._lookup(neweststamp)     # newest is also back in history somewhere
         else:
@@ -220,21 +220,24 @@ cdef class SecondsCollector(object):
 #            sys.stdout.flush()
 #            
 #        #
+
+        qinfo.exporter = self._ip
         
         if step == 0:
+            qinfo.stamp = neweststamp
             self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
         else:
-            neweststamp = self._stamps[lastpos]
-            oldeststamp = self._stamps[oldestpos]
+            nwstamp = self._stamps[lastpos]
             currentstamp = oldeststamp+step
-            while currentstamp < neweststamp:
+            while currentstamp < nwstamp:
                 curpos = self._lookup(currentstamp)
-                currentstamp = self._stamps[curpos]
-                if currentstamp >= neweststamp: break
+                if self._stamps[curpos] >= nwstamp: break
+                qinfo.stamp = currentstamp
                 self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, curpos)
                 oldestpos = curpos
                 currentstamp = currentstamp+step
-                
+
+            qinfo.stamp = neweststamp
             self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
 
     @cython.boundscheck(False)
@@ -242,27 +245,22 @@ cdef class SecondsCollector(object):
                        uint32_t oldestpos, uint32_t lastpos) nogil:
         cdef uint32_t oldestloc, lastloc
 
-        qinfo.stamp = self._stamps[lastpos]
-        qinfo.exporter = self._ip
-        
-        lastloc = self._seconds[lastpos]        
-        oldestloc = self._seconds[oldestpos]
-
         #TMP
 #        with gil:
 #            import sys
-#            print "lastloc:%d oldloc:%d"%(lastloc, oldestloc)
+#            print "%s stamp:%d [%d->%d]"%(self._name, qinfo.stamp, self._stamp[oldestpos], self._stamp[lastpos])
 #            sys.stdout.flush()
-#            
-        #
+#        #
+
+        lastloc = self._seconds[lastpos]
+        oldestloc = self._seconds[oldestpos]
 
         # here we have secpos pointing to proper position where we need to start collection
 
         if lastloc >= oldestloc:  # one chunk of data
-            if lastloc > oldestloc:
-                qinfo.first = self._counterset+oldestloc
-                qinfo.count = lastloc-oldestloc
-                q.collect(bufinfo, qinfo, data)
+            qinfo.first = self._counterset+oldestloc
+            qinfo.count = lastloc-oldestloc
+            q.collect(bufinfo, qinfo, data)
         else:
             # two chunks of data
             # collect older

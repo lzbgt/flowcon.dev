@@ -114,7 +114,8 @@ cdef class QueryBuffer(object):
         
         self._buf.count = size/width
 
-        self._positions.bufpos = 1  # position 0 is illegal, let's make sure it's not taken and not used 
+        self._positions.bufpos = 1  # position 0 is illegal, let's make sure it's not taken and not used
+        self._positions.curpos = 0 
         self._positions.countpos = 0
         self._positions.totbytes = 0
         self._positions.totpackets = 0

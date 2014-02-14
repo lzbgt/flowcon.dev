@@ -106,6 +106,7 @@ typedef struct PACKED ipfix_query_buf {
 
 typedef struct PACKED ipfix_query_pos {
 	uint32_t 			bufpos;
+	uint32_t 			curpos;
 	uint32_t 			countpos;
 
 	uint64_t			totbytes;
