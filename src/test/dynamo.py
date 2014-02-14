@@ -66,6 +66,8 @@ def periodic(collect, fields):
     rq = native.dynamo.genflow(fields)
     qbuf = native.dynamo.qmod.QueryBuffer()
     
+    rq.initbuf(qbuf)
+    
     receiver = native.receiver.recmod.Receiver(srcs)
     
     stamp = consume(collect, receiver, srcs)

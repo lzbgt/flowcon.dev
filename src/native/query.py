@@ -241,6 +241,8 @@ class PeriodicQuery(FQuery):
         if self._next > now: return None
         self._next = now + self._period
         
+        self._native.initbuf(qbuf._native)
+        
         self._native.runseconds(qbuf._native, self._seconds, stamp, self._prevstamp, 0)
         
         self._prevstamp = stamp
