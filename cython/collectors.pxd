@@ -52,6 +52,7 @@ cdef class SecondsCollector(object):
     cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex)
     cdef void _alloc(self, uint32_t size)
     cdef void _grow(self)
+    cdef _fixseconds(self, ipfix_store_counts* start, uint32_t offset, uint32_t startsz)
     cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos)
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 

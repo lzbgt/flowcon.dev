@@ -70,7 +70,7 @@ def periodic(collect, fields):
     
     receiver = native.receiver.recmod.Receiver(srcs)
     
-    stamp = consume(collect, receiver, srcs)
+    first, stamp = consume(collect, receiver, srcs)
     
     secset = []
     for ip, s in srcs._srcs.items():
@@ -78,13 +78,19 @@ def periodic(collect, fields):
         _, _, secs = s.getcollectors()
         secset.append(secs)
 
+    print "first",first, "last",stamp, "diff",stamp-first, " before",stamp+3500
+
+    for dt in range(5*3600):
+        srcs.on_time(stamp+dt)
+
     rq.runseconds(qbuf, secset, stamp, stamp-2, 0)
     
     print rq.report(qbuf, 'bytes', 'max', 10)
 
 def consume(collect, receiver, srcs):
     dkeys = sorted(collect.keys())
-    prevstamp = native.query.mkstamp(dkeys[0])
+    firststamp = native.query.mkstamp(dkeys[0])
+    prevstamp = firststamp
     for d in sorted(collect.keys()):
         buf = collect[d]
         stamp = native.query.mkstamp(d)
@@ -93,7 +99,7 @@ def consume(collect, receiver, srcs):
             prevstamp = stamp
         receiver.receive(buf, len(buf))
 
-    return prevstamp
+    return firststamp, prevstamp
     
 def capture(fname, addr):
     p = urlparse.urlsplit(addr)

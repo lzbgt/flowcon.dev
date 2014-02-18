@@ -93,7 +93,7 @@ cdef class SecondsCollector(object):
         cdef oldcounters = self._counters
         cdef uint64_t startbytes, endbytes
 
-        #logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
+#        logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
         
         self._alloc(newsize)
         
@@ -109,13 +109,7 @@ cdef class SecondsCollector(object):
             if endbytes > 0:
                 memcpy((<unsigned char*>self._counterset)+startbytes, start, endbytes)
             # update pointers to where relocated data is sitting now
-            for pos in range(self._depth):
-                secpos = self._seconds[pos]
-                if secpos == INVALID: continue
-                if (start+secpos) >= self._first:   # it is in upper chunk
-                    self._seconds[pos] = secpos-offset  # shift down
-                else:                               # it is in lower chunk
-                    self._seconds[pos] = secpos+startsz # shift up
+            self._fixseconds(start, offset, startsz)
         else:
             startbytes = (<uint64_t>self._last) - (<uint64_t>self._first);
             memcpy(self._counterset, self._first, startbytes)
@@ -131,6 +125,27 @@ cdef class SecondsCollector(object):
         del oldcounters     # not needed; just in case
         
     @cython.boundscheck(False)
+    cdef _fixseconds(self, ipfix_store_counts* start, uint32_t offset, uint32_t startsz):
+        cdef uint32_t pos, secpos, prevpos = 0
+        
+        pos = self._currentsec+1    # start from oldest second
+        if pos >= self._depth: pos = 0
+        for _ in range(self._depth):
+            secpos = self._seconds[pos]
+            if secpos != INVALID: 
+                if (start+secpos) >= self._first:   # it is in upper chunk
+                    secpos -= offset                # shift down
+                    if secpos == 0 and prevpos > 0:
+                        secpos += offset + startsz    # revert and shift up because it is last
+                    self._seconds[pos] = secpos
+                else:                               # it is in lower chunk
+                    secpos += startsz               # shift up
+                    self._seconds[pos] = secpos
+                prevpos = secpos
+            pos += 1
+            if pos >= self._depth: pos = 0
+
+    @cython.boundscheck(False)
     def onsecond(self, uint64_t stamp):
         cdef uint32_t newloc, next
         cdef uint32_t current = self._currentsec
@@ -142,10 +157,11 @@ cdef class SecondsCollector(object):
         next = current + 1  # next to oldest; this is where oldest ends
         if next >= self._depth:
             next = 0
-            
+        
         self._removeold(self._seconds[current], self._seconds[next])
         
         newloc = <uint32_t>(((<uint64_t>self._last) - (<uint64_t>self._counterset))/sizeof(ipfix_store_counts))
+        
         self._seconds[current] = newloc
         self._stamps[current] = stamp
         self._currentsec = current
@@ -212,15 +228,6 @@ cdef class SecondsCollector(object):
         qinfo.flows = <ipfix_store_flow*>self._flows.entryset
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
-        #TMP
-#        with gil:
-#            import sys
-#            print "current:%d[%d] newest:%d[%d] oldest:%d[%d] step:%d"%(currentstamp, self._currentsec, neweststamp, 
-#                                                                        lastpos, oldeststamp, oldestpos, step)
-#            sys.stdout.flush()
-#            
-#        #
-
         qinfo.exporter = self._ip
         
         if step == 0:
@@ -244,13 +251,6 @@ cdef class SecondsCollector(object):
     cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, void* data, ipfix_query_info* qinfo,
                        uint32_t oldestpos, uint32_t lastpos) nogil:
         cdef uint32_t oldestloc, lastloc
-
-        #TMP
-#        with gil:
-#            import sys
-#            print "%s stamp:%d [%d->%d]"%(self._name, qinfo.stamp, self._stamp[oldestpos], self._stamp[lastpos])
-#            sys.stdout.flush()
-#        #
 
         lastloc = self._seconds[lastpos]
         oldestloc = self._seconds[oldestpos]
@@ -288,9 +288,12 @@ cdef class SecondsCollector(object):
             count = self._maxcount-lastloc
             if count > 0:
                 self._flows.remove(start, count)
-            count = nextloc   # count = nextloc - 0
-            if count > 0:
-                self._flows.remove(self._counterset, count) # from very beginning of buffer to nextloc
+            # count = nextloc - 0
+            if nextloc > 0:
+                self._flows.remove(self._counterset, nextloc) # from very beginning of buffer to nextloc
+            count += nextloc
+        self._first = self._counterset+nextloc
+        self._count -= count
 
 cdef class Collector(object):
 
@@ -499,7 +502,7 @@ cdef class FlowCollector(Collector):
             index = counts[pos].flowindex
 
             flow = <ipfix_store_flow*>(eset+index*sz)
-            
+
             if flow.refcount == 0:  # already deleted 
                 continue
             if flow.refcount > 1:   # still referenced
@@ -556,28 +559,6 @@ cdef class FlowCollector(Collector):
             if newsize < minsize: return
             self._resize(newsize)
         
-#    cdef _compact(self):
-#        cdef uint32_t freepos
-#        cdef unsigned char* eset
-#        cdef ipfix_store_flow* freerec, *rec
-#        cdef int sz = self._width
-#        cdef uint32_t last = self.end-1
-#        
-#        eset = self.entryset
-#                
-#        freepos = self.freepos
-#        while freepos > 0:
-#            freerec = <ipfix_store_flow*>(eset+freepos*sz)
-#            freepos = freerec.next
-#            if last > 0:
-#                while last > 0:
-#                    rec = <ipfix_store_flow*>(eset+last*sz)
-#                    last -= 1
-#                    if rec.refcount != 0: break
-#            
-#        self.freepos = 0
-#        self.freecount = 0
-
 cdef class AttrCollector(Collector):
 
     def __init__(self, nm):
