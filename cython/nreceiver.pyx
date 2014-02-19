@@ -13,7 +13,8 @@ cimport numpy as np
 from common cimport *
 from misc cimport logger, showflow
 from nquery cimport RawQuery
-from collectors cimport SecondsCollector, Collector
+from collectors cimport Collector
+from timecollect cimport SecondsCollector
 
 def _dummy():
     "exists only to get rid of compile warnings"
@@ -25,7 +26,7 @@ def _dummy():
 cdef class Receiver(object):
     cdef sourceset
     cdef uint32_t exporter
-    cdef SecondsCollector   seccollect
+    cdef SecondsCollector seccollect
     cdef Collector flowcollect
     cdef Collector attrcollect
     cdef RawQuery first

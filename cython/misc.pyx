@@ -7,6 +7,10 @@ import sys
 from common cimport *
 from misc cimport logger
 
+cdef uint32_t minsize = 16
+cdef float growthrate = 2.0
+cdef float shrinkrate = 2.0
+
 def simplelogger(msg):
     print msg
     sys.stdout.flush()
@@ -17,6 +21,9 @@ def setlogger(lgr):
     global logger
     logger = lgr
 
+cdef object showapp(const ipfix_app_tuple* atup):
+    return "%08x,%08x"%(atup.srcaddr, ftup.dstaddr)
+    
 cdef object showflow(const ipfix_flow_tuple* ftup):
     return "%2d, %5d, %08x, %5d, %08x"%(ftup.protocol, ftup.srcport, ftup.srcaddr,
                                         ftup.dstport, ftup.dstaddr)

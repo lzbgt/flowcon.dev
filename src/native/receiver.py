@@ -10,6 +10,8 @@ import native, flowtools.settings
 
 recmod = native.loadmod('nreceiver')
 colmod = native.loadmod('collectors')
+timecolmod = native.loadmod('timecollect')
+appsmod = native.loadmod('napps')
 
 class Receiver(object):
 
@@ -80,7 +82,9 @@ class Sources(object):
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._seconds = colmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
+        self._appflows = colmod.AppFlowCollector("C"++self._name)
+        self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
+        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, flowtools.settings.maxminutes, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
@@ -89,10 +93,12 @@ class Sources(object):
         return self.name
     
     def stats(self):
-        return {}
+        return {'address':self._ip}
 
-    def on_time(self, stamp):
-        self._seconds.onsecond(stamp)
+    def on_time(self, apps, secs, mins, hours, days):
+        self._seconds.onsecond(apps._nativeapps, secs)
+        if mins:
+            self._minutes.onminute(apps._nativeapps, self._appflows, self._seconds, mins)
         
     @property
     def name(self):
@@ -101,3 +107,11 @@ class Sources(object):
     @property
     def ip(self):
         return self._ip
+    
+class Apps(object):
+    
+    def __init__(self):
+        self._nativeapps = appsmod.Apps(flowtools.settings.portrate, flowtools.settings.minthreshold)
+
+    def report(self):
+        return self._nativeapps.report()

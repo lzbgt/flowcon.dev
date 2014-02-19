@@ -19,7 +19,8 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
-from collectors cimport SecondsCollector, FlowCollector, AttrCollector
+from collectors cimport FlowCollector, AttrCollector
+from timecollect cimport SecondsCollector 
 from misc cimport logger 
 
 cdef uint32_t minbufsize = 256

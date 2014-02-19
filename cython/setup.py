@@ -16,6 +16,7 @@ from Cython.Distutils import build_ext
 #            pass
 #        build_ext.build_extension(self, ext)
 
-res = setup(ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", "nquery.pyx"]),
+res = setup(ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", 'timecollect.pyx', 
+                                     "nquery.pyx", "napps.pyx"]),
             #cmdclass = {'build_ext': cpp_build_ext},
             script_args=['build_ext', '--inplace'])

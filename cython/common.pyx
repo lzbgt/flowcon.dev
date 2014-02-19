@@ -1,5 +1,6 @@
 
 cdef extern from "stdint.h":
+    ctypedef long uint16_t
     ctypedef long uint32_t
     ctypedef long uint64_t
 
@@ -112,8 +113,29 @@ cdef extern from "ipfix.h":
         long    curpos
         long    countpos
         long    totbytes
-        long    totpackets        
+        long    totpackets
+                
+    cdef struct ipfix_apps_ports:
+        int     protocol
+        int     p1
+        int     p2
         
+    cdef struct ipfix_apps:
+        long                next
+        long                crc
+        ipfix_apps_ports    ports
+        
+    cdef struct ipfix_app_tuple:
+        long    application
+        long    srcaddr
+        long    dstaddr
+
+    cdef struct ipfix_app_flow:
+        long                next
+        long                crc
+        ipfix_app_tuple     app
+        long                attrindex
+
     ctypedef void (*ipfix_collector_call_t)(const ipfix_query_buf* buf, 
                                             const ipfix_query_info* info,
                                             ipfix_query_pos* poses) nogil

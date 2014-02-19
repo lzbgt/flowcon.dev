@@ -44,8 +44,26 @@ def process(addr, f, s):
             print " %5d %s"%(num, nmp[3])
         print
     if s:
-        pprint.pprint(stats['stats'])    
-    
+        pprint.pprint(stats['stats'])
+        apps = stats.get('apps', None)
+        if apps:
+            ports = apps['ports']
+            tot = ports['total']
+            counts = ports['counts']
+            appkeys = sorted(counts, key=lambda p: counts[p], reverse=True)
+            print "port counters: %d totalcount: %d"%(len(counts), tot)
+            for k in appkeys[:20]:
+                print "%5s: %.1f %d"%(k, 100.0*counts[k]/tot, counts[k])
+                
+            appset = apps['apps']
+            print 'apps total: %d zeros:%d'%(appset['total'], appset['zeros'])
+            for a in appset['ports'][:20]:
+                p1 = a[0]
+                p2 = a[1]
+                if p1 == 0:
+                    print "             %5d[%5d]"%(p2, counts[str(p2)])
+                else:
+                    print "%5d[%5d] %5d[%5d]"%(p1, counts[str(p1)], p2, counts[str(p2)])
 
 if __name__ == '__main__':
     main()

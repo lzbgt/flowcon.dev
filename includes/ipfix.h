@@ -122,6 +122,32 @@ typedef struct PACKED ipfix_query_info {
 	uint32_t 				  		exporter;
 } ipfix_query_info_t;
 
+typedef struct PACKED ipfix_apps_ports {
+	uint8_t  			protocol;
+	uint16_t			p1;
+	uint16_t			p2;
+} ipfix_apps_ports_t;
+
+typedef struct PACKED ipfix_apps {
+	indextype				next;
+	uint32_t				crc;
+	ipfix_apps_ports_t 		ports;
+} ipfix_apps_t;
+
+typedef struct PACKED ipfix_app_tuple {
+	uint32_t application;
+	uint32_t srcaddr;
+	uint32_t dstaddr;
+} ipfix_app_tuple_t;
+
+typedef struct PACKED ipfix_app_flow {
+	indextype			next;
+	uint32_t			crc;
+	ipfix_app_tuple_t 	app;
+	indextype			attrindex;
+} ipfix_app_flow_t;
+
+
 typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
 									   const ipfix_query_info_t* info,
 									   ipfix_query_pos_t* poses);

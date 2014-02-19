@@ -63,18 +63,24 @@ class History(object):
     def tick(self):
         now = datetime.datetime.utcnow()
         stamp = native.query.mkstamp(now)
+        mins = None
+        hours = None
+        days = None
         if self._second.now != stamp:
             self._second.tick(stamp)
             minute = self._minute.fromstamp(stamp)
             if self._minute.now != minute:
                 self._minute.tick(minute)
+                mins = minute
                 hour = self._hour.fromstamp(stamp)
                 if self._hour.now != hour:
                     self._hour.tick(hour)
+                    hours = hour
                     day = self._day.fromstamp(stamp)
                     if self._day.now != day:
                         self._day.tick(day)
-        return now
+                        days = day
+        return now, mins, hours, days
     
     def seconds(self):
         return self._second
@@ -96,6 +102,7 @@ class FlowProc(connector.Connection):
         self._nreceiver = receiver
         self._nbuf = native.query.QueryBuffer()
         self._history = History()
+        self._apps = native.receiver.Apps()
         
         receiver.sourcecallback(self.onnewsource)
 
@@ -105,23 +112,24 @@ class FlowProc(connector.Connection):
                     
     def _on_status(self, addr, msg):
         stats = []
-        fields = {}
+#        fields = {}
         for s in self._nreceiver.sources():
-            fields[s.address()] = sorted([int(f) for f in s.fields()])
+#            fields[s.address()] = sorted([int(f) for f in s.fields()])
             stats.append(s.stats())
-        res = {'fields':fields, 'stats':stats}
+#        res = {'fields':fields, 'stats':stats, 'apps':self._apps.report()}
+        res = {'stats':stats, 'apps':self._apps.report()}
         self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
              
     def on_time(self):
         # check for expired peers
-        now = self._history.tick()
+        now, mins, hours, days = self._history.tick()
 
         self._check_peers(now)
         
         stamp = self._history.seconds().now
         
         for source in self._nreceiver.sources():
-            source.on_time(stamp)
+            source.on_time(self._apps, stamp, mins, hours, days)
             
         for per in self._periodic.values():
             res = per.on_time(self._nbuf, now, stamp)
