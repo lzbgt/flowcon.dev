@@ -22,7 +22,7 @@ def setlogger(lgr):
     logger = lgr
 
 cdef object showapp(const ipfix_app_tuple* atup):
-    return "%08x,%08x"%(atup.srcaddr, ftup.dstaddr)
+    return "%08x,%08x"%(atup.srcaddr, atup.dstaddr)
     
 cdef object showflow(const ipfix_flow_tuple* ftup):
     return "%2d, %5d, %08x, %5d, %08x"%(ftup.protocol, ftup.srcport, ftup.srcaddr,

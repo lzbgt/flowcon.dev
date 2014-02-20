@@ -60,10 +60,13 @@ def process(addr, f, s):
             for a in appset['ports'][:20]:
                 p1 = a[0]
                 p2 = a[1]
-                if p1 == 0:
-                    print "             %5d[%5d]"%(p2, counts[str(p2)])
-                else:
-                    print "%5d[%5d] %5d[%5d]"%(p1, counts[str(p1)], p2, counts[str(p2)])
+                try:
+                    if p1 == 0:
+                        print "             %5d[%5d]"%(p2, counts[str(p2)])
+                    else:
+                        print "%5d[%5d] %5d[%5d]"%(p1, counts[str(p1)], p2, counts[str(p2)])
+                except:
+                    print "%5d[%5d] %5d[%5d] error"%(p1, 0, p2, 0)
 
 if __name__ == '__main__':
     main()

@@ -26,6 +26,7 @@ cdef class Apps(Collector):
 
         self.dtypes = [('next',      'u%d'%sizeof(apps.next)),
                        ('crc',       'u%d'%sizeof(apps.crc)),
+                       ('protocol',  'u%d'%sizeof(apps.ports.protocol)),
                        ('p1',        'u%d'%sizeof(apps.ports.p1)),
                        ('p2',        'u%d'%sizeof(apps.ports.p2))]                
         
@@ -57,42 +58,59 @@ cdef class Apps(Collector):
             self._totalcount += 2
             
     @cython.boundscheck(False)
-    cdef uint32_t getflowapp(self, const ipfix_flow_tuple* flow) nogil:
+    cdef uint32_t getflowapp(self, const ipfix_flow_tuple* flow, int* ingress) nogil:
         cdef uint32_t* portcounts = self._portcounts
         cdef float rt = self._portrate
-        cdef uint16_t p1, p2
+        cdef uint16_t dst, src
         cdef ipfix_apps_ports ports
+        cdef uint32_t srccnt, dstcnt
         
-        if flow.srcport < flow.dstport:
-            p1 = flow.srcport
-            p2 = flow.dstport
-        else:
-            if flow.dstport == 0:
-                self._zeroportcount += 1 
-                return 0  # invalid app
-            p1 = flow.dstport
-            p2 = flow.srcport
+        dst = flow.dstport
+        src = flow.srcport
+        if dst == 0:
+            ingress[0] = 1 
+            return 0
         
-        cdef uint32_t src = portcounts[p1]
-        cdef uint32_t dst = portcounts[p2]
-
         ports.protocol = flow.protocol
 
-        if src > dst:
-            if src >= self._minthreshold and src >= dst*rt:
-                ports.p1 = 0    # ignore p2 port
-                ports.p2 = p1   
+        if src == 0:
+            self._zeroportcount += 1
+            ingress[0] = 1
+            ports.p1 = 0
+            ports.p2 = dst
+        else:   
+            srccnt = portcounts[src]
+            dstcnt = portcounts[dst]
+            
+            if srccnt > dstcnt:
+                if srccnt >= self._minthreshold and srccnt >= dstcnt*rt:
+                    ports.p1 = 0    # ignore dst port
+                    ports.p2 = src
+                    ingress[0] = 0
+                else:   # unknown application; sort the ports; consider smaller port as application   
+                    if src > dst:
+                        ingress[0] = 1
+                        ports.p1 = dst
+                        ports.p2 = src
+                    else:
+                        ingress[0] = 0
+                        ports.p1 = src
+                        ports.p2 = dst
             else:
-                ports.p1 = p1
-                ports.p2 = p2
-        else:
-            if dst >= self._minthreshold and src*rt <= dst:
-                ports.p1 = 0    # ignore p1 port
-                ports.p2 = p2
-            else:
-                ports.p1 = p1
-                ports.p2 = p2
-
+                if dstcnt >= self._minthreshold and srccnt*rt <= dstcnt:
+                    ports.p1 = 0    # ignore src port
+                    ports.p2 = dst
+                    ingress[0] = 1
+                else:   # unknown application; sort the ports; consider smaller port as application   
+                    if src > dst:
+                        ingress[0] = 1
+                        ports.p1 = dst
+                        ports.p2 = src
+                    else:
+                        ingress[0] = 0
+                        ports.p1 = src
+                        ports.p2 = dst
+        
         return self._add(cython.address(ports), 0, sizeof(ipfix_apps_ports))
 
     @cython.boundscheck(False)

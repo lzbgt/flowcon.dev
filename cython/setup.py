@@ -4,7 +4,7 @@ Created on Jun 27, 2013
 @author: schernikov
 '''
 
-from distutils.core import setup
+from distutils.core import setup, Extension
 from Cython.Build import cythonize
 from Cython.Distutils import build_ext
 
@@ -16,7 +16,13 @@ from Cython.Distutils import build_ext
 #            pass
 #        build_ext.build_extension(self, ext)
 
-res = setup(ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", 'timecollect.pyx', 
-                                     "nquery.pyx", "napps.pyx"]),
+ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", 'timecollect.pyx', 
+                         "nquery.pyx", "napps.pyx"])
+
+ext_modules.append(Extension('minutescoll',
+                             sources=['../csrc/minutescoll.c'], 
+                             include_dirs=['../includes']))
+
+res = setup(ext_modules = ext_modules,
             #cmdclass = {'build_ext': cpp_build_ext},
             script_args=['build_ext', '--inplace'])

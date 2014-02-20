@@ -243,6 +243,7 @@ class PeriodicQuery(FQuery):
         
         self._native.initbuf(qbuf._native)
         
+        #TODO: run more than just over seconds? 
         self._native.runseconds(qbuf._native, self._seconds, stamp, self._prevstamp, 0)
         
         self._prevstamp = stamp

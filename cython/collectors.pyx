@@ -61,12 +61,22 @@ cdef class Collector(object):
 
     @cython.boundscheck(False)
     cdef uint32_t _add(self, const void* ptr, uint32_t index, int dsize) nogil:
+        cdef uint32_t pos
+        
+        cdef ipfix_store_entry* entryrec = self._findentry(ptr, cython.address(pos), dsize)
+        
+        self._onindex(entryrec, index)  # commit index value
+        
+        return pos
+    
+    @cython.boundscheck(False)
+    cdef ipfix_store_entry* _findentry(self, const void* ptr, uint32_t* outpos, int dsize) nogil:    
         cdef uint32_t crc, pos, ind, lastpos
         cdef ipfix_store_entry* entryrec
         cdef int sz = self._width
         
         #logger("adding to %s"%(self._name))
-        crc = adler32(self.adler, <unsigned char*>ptr, sz)
+        crc = adler32(self.adler, <unsigned char*>ptr, dsize)
         ind = crc & self.mask
         pos = self.indexset[ind]
         #logger("  crc:%08x ind:%d pos:%d addr:%08x"%(crc, ind, pos, <uint64_t>cython.address(self.indexset[ind])))
@@ -75,8 +85,8 @@ cdef class Collector(object):
                 entryrec = <ipfix_store_entry*>(self.entryset+pos*sz)
                 if memcmp(entryrec.data, ptr, dsize) == 0:
                     # found identical flow
-                    self._onindex(entryrec, index)  # commit index value
-                    return pos
+                    outpos[0] = pos
+                    return entryrec
                 pos = entryrec.next
             # need new
             pos = self._findnewpos(sz)
@@ -84,7 +94,7 @@ cdef class Collector(object):
             if pos == 0:    # need resize
                 with gil:
                     self._grow()
-                return self._add(ptr, index, dsize)    # repeat on bigger array
+                return self._findentry(ptr, outpos, dsize)    # repeat on bigger array
 
             entryrec.next = pos # link to previous
         else:
@@ -93,7 +103,7 @@ cdef class Collector(object):
             if pos == 0:    # need resize
                 with gil:
                     self._grow()
-                return self._add(ptr, index, dsize)    # repeat on bigger array
+                return self._findentry(ptr, outpos, dsize)    # repeat on bigger array
             self.indexset[ind] = pos
         
         entryrec = <ipfix_store_entry*>(self.entryset+pos*sz)
@@ -101,9 +111,9 @@ cdef class Collector(object):
         entryrec.next = 0 
         entryrec.crc = crc
         memcpy(entryrec.data, ptr, dsize)
-        self._onindex(entryrec, index)
-        
-        return pos
+
+        outpos[0] = pos
+        return entryrec
 
     @cython.boundscheck(False)
     cdef uint32_t _findnewpos(self, uint32_t sz) nogil:
@@ -142,7 +152,6 @@ cdef class Collector(object):
         mask = self.mask
         eset = self.entryset
         iset = self.indexset
-        entry = <ipfix_store_entry*>(eset+1)
 
         for pos in range(1, count):
             entry = <ipfix_store_entry*>(eset+pos*sz)
@@ -307,9 +316,11 @@ cdef class AttrCollector(Collector):
 
 cdef class AppFlowCollector(Collector):
 
-    def __init__(self, nm):
+    def __init__(self, nm, attribs):
         super(AppFlowCollector, self).__init__(nm, sizeof(ipfix_app_flow))
         cdef ipfix_app_flow flow
+        
+        self._attributes = attribs
         
         self.dtypes = [('next',     'u%d'%sizeof(flow.next)),
                        ('crc',      'u%d'%sizeof(flow.crc)),

@@ -15,6 +15,7 @@ cdef class Collector(object):
 
     cdef int _resz(self, int size)
     cdef uint32_t _add(self, const void* ptr, uint32_t index, int dsize) nogil
+	cdef ipfix_store_entry* _findentry(self, const void* ptr, uint32_t* outpos, int dsize) nogil    
     cdef uint32_t _findnewpos(self, uint32_t sz) nogil
     cdef void _grow(self)
     cdef void _resize(self, uint32_t size)
@@ -34,5 +35,6 @@ cdef class AttrCollector(Collector):
     pass
 
 cdef class AppFlowCollector(Collector):
-
+    cdef AttrCollector _attributes
+	
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil

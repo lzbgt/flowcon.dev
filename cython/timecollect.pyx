@@ -213,7 +213,7 @@ cdef class SecondsCollector(object):
 
     @cython.boundscheck(False)
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
-                      uint64_t neweststamp, uint64_t oldeststamp, uint32_t step, void* data) nogil:
+                      uint64_t neweststamp, uint64_t oldeststamp, uint32_t step) nogil:
 
         cdef uint32_t curpos, oldestpos, lastpos = self._currentsec
         cdef uint64_t nwstamp, currentstamp = self._stamps[lastpos]
@@ -231,14 +231,11 @@ cdef class SecondsCollector(object):
         
         cdef ipfix_query_info qinfo
         
-        qinfo.flows = <ipfix_store_flow*>self._flows.entryset
-        qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
-        
-        qinfo.exporter = self._ip
-        
+        self._initqinfo(qinfo)
+
         if step == 0:
             qinfo.stamp = neweststamp
-            self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
+            self._collect(q, bufinfo, cython.address(qinfo), oldestpos, lastpos)
         else:
             nwstamp = self._stamps[lastpos]
             currentstamp = oldeststamp+step
@@ -246,15 +243,26 @@ cdef class SecondsCollector(object):
                 curpos = self._lookup(currentstamp)
                 if self._stamps[curpos] >= nwstamp: break
                 qinfo.stamp = currentstamp
-                self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, curpos)
+                self._collect(q, bufinfo, cython.address(qinfo), oldestpos, curpos)
                 oldestpos = curpos
                 currentstamp = currentstamp+step
 
             qinfo.stamp = neweststamp
-            self._collect(q, bufinfo, data, cython.address(qinfo), oldestpos, lastpos)
+            self._collect(q, bufinfo, cython.address(qinfo), oldestpos, lastpos)
 
     @cython.boundscheck(False)
-    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, void* data, ipfix_query_info* qinfo,
+    cdef uint32_t currentpos(self) nogil:
+        return self._currentsec
+
+    @cython.boundscheck(False)
+    cdef void _initqinfo(self, ipfix_query_info qinfo) nogil:
+        qinfo.flows = <ipfix_store_flow*>self._flows.entryset
+        qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
+        
+        qinfo.exporter = self._ip
+
+    @cython.boundscheck(False)
+    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, ipfix_query_info* qinfo,
                        uint32_t oldestpos, uint32_t lastpos) nogil:
         cdef uint32_t oldestloc, lastloc
 
@@ -266,17 +274,17 @@ cdef class SecondsCollector(object):
         if lastloc >= oldestloc:  # one chunk of data
             qinfo.first = self._counterset+oldestloc
             qinfo.count = lastloc-oldestloc
-            q.collect(bufinfo, qinfo, data)
+            q.collect(bufinfo, qinfo)
         else:
             # two chunks of data
             # collect older
             qinfo.first = self._counterset+oldestloc
             qinfo.count = self._maxcount-oldestloc
-            q.collect(bufinfo, qinfo, data)
+            q.collect(bufinfo, qinfo)
             # collect newer
             qinfo.first = self._counterset
             qinfo.count = lastloc
-            q.collect(bufinfo, qinfo, data)
+            q.collect(bufinfo, qinfo)
     
     @cython.boundscheck(False)    
     cdef void _removeold(self, Apps apps, uint32_t lastloc, uint32_t nextloc):
@@ -308,14 +316,60 @@ cdef class SecondsCollector(object):
         self._flows.remove(start, count)
 
 cdef class MinutesCollector(object):
-    cdef _name
-    cdef uint32_t _ip
  
     def __init__(self, nm, uint32_t ip, uint32_t minutesdepth, uint32_t stamp):
         self._name = nm
         self._ip = ip
+        self._prevsecpos = INVALID
+        self._query = FlowQuery('minutescoll.so', 'minutes')
         
     @cython.boundscheck(False)
-    def onminute(self, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
+    def onminute(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
+        cdef uint32_t appidx, cursecpos
+        cdef uin
+        
+        cursecpos = seccoll.currentpos()
+        
+        if self._prevsecpos == INVALID:
+            self._prevsecpos = cursecpos
+            return
 
-        app.getflowapp(flow)
+        self._query.initbuf(qbuf)
+        
+        cdef ipfix_query_info qinfo
+        
+        seccoll._initqinfo(qinfo)
+        
+        qinfo.callback = <FlowAppCallback>self._onapp
+        qinfo.callobj = <void*>self
+        
+        seccoll._collect(self._query, qbuf, cython.address(qinfo), self._prevsecpos, cursecpos)
+        
+#        appidx = app.getflowapp(flow)
+#
+#        flows._add(cython.address(), appidx, sizeof())
+
+        self._prevsecpos = cursecpos
+        
+    @cython.boundscheck(False)
+    cdef int _onapp(self, const ipfix_flow_tuple* flow, AppFlowValues* vals) nogil:
+        cdef int ingress
+        cdef ipfix_app_tuple atup
+        cdef uint32_t pos
+        cdef ipfix_store_entry* entryrec
+        
+        atup.application = app.getflowapp(flow, cython.address(ingress))
+        
+        if ingress == 0:
+            atup.srcaddr = flow->dstaddr
+            atup.dstaddr = flow->srcaddr
+        else:
+            atup.srcaddr = flow->srcaddr
+            atup.dstaddr = flow->dstaddr
+
+        entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
+        
+        vals.crc = entryrec.crc
+        vals.pos = pos
+
+        return ingress

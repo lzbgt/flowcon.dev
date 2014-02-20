@@ -135,7 +135,8 @@ cdef class QueryBuffer(object):
         
         return cython.address(self._buf)
 
-    cdef const ipfix_query_buf* getbuf(self):
+    @cython.boundscheck(False)
+    cdef const ipfix_query_buf* getbuf(self) nogil:
         return cython.address(self._buf)
 
     @cython.boundscheck(False)
@@ -285,10 +286,9 @@ cdef class FlowQuery(Query):
     @cython.boundscheck(False)
     def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
         cdef SecondsCollector sec
-        cdef const ipfix_query_buf* buf = qbuf.getbuf()
         
         for sec in secset:
-            sec.collect(self, qbuf, newstamp, oldstamp, step, <void*>buf)
+            sec.collect(self, qbuf, newstamp, oldstamp, step)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
@@ -314,9 +314,9 @@ cdef class FlowQuery(Query):
         return result
 
     @cython.boundscheck(False)
-    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info, void* data) nogil:
-        cdef const ipfix_query_buf* buf = <ipfix_query_buf*>data
+    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info) nogil:
         cdef ipfix_query_pos* poses = bufinfo.getposes()
+        cdef const ipfix_query_buf* buf = bufinfo.getbuf()
             
         poses.countpos = 0    # reset to start from first flow in info
 

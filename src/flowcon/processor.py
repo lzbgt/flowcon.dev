@@ -129,7 +129,7 @@ class FlowProc(connector.Connection):
         stamp = self._history.seconds().now
         
         for source in self._nreceiver.sources():
-            source.on_time(self._apps, stamp, mins, hours, days)
+            source.on_time(self._qbuf, self._apps, stamp, mins, hours, days)
             
         for per in self._periodic.values():
             res = per.on_time(self._nbuf, now, stamp)

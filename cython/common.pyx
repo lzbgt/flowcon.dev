@@ -93,6 +93,17 @@ cdef extern from "ipfix.h":
         long    flowindex
         long    bytes
         long    packets
+
+    cdef struct ipfix_app_tuple:
+        long    application
+        long    srcaddr
+        long    dstaddr
+        
+    cdef struct AppFlowValues:
+        long    crc
+        long    pos
+        
+    ctypedef int (*FlowAppCallback)(void* obj, const ipfix_flow_tuple* flow, AppFlowValues* vals) nogil
         
     cdef struct ipfix_query_info:
         const ipfix_store_counts*      first
@@ -101,6 +112,8 @@ cdef extern from "ipfix.h":
         const ipfix_store_attributes*  attrs
         long                           stamp
         long                           exporter
+        FlowAppCallback                callback
+        void*                          callobj
 
     cdef struct ipfix_query_buf:
         void*   data
@@ -125,16 +138,12 @@ cdef extern from "ipfix.h":
         long                crc
         ipfix_apps_ports    ports
         
-    cdef struct ipfix_app_tuple:
-        long    application
-        long    srcaddr
-        long    dstaddr
-
     cdef struct ipfix_app_flow:
         long                next
         long                crc
         ipfix_app_tuple     app
-        long                attrindex
+        long                inattrindex
+        long                outattrindex
 
     ctypedef void (*ipfix_collector_call_t)(const ipfix_query_buf* buf, 
                                             const ipfix_query_info* info,

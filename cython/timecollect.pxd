@@ -28,10 +28,16 @@ cdef class SecondsCollector(object):
     cdef void _rmold(self, Apps apps, const ipfix_store_counts* start, uint32_t count)
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
-    				  uint64_t neweststamp, uint64_t oldeststamp, uint32_t step, void* data) nogil
-    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, void* data, ipfix_query_info* qinfo,
+    				  uint64_t neweststamp, uint64_t oldeststamp, uint32_t step) nogil
+    cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, ipfix_query_info* qinfo,
                        uint32_t oldestpos, uint32_t lastpos) nogil
+    cdef void _initqinfo(self, ipfix_query_info qinfo) nogil
+    cdef uint32_t currentpos(self) nogil
 
 cdef class MinutesCollector(object):
     cdef _name
     cdef uint32_t _ip
+    cdef uint32_t _prevsecpos
+    cdef FlowQuery _query
+
+    cdef int _onapp(self, const ipfix_flow_tuple* flow, ipfix_app_tuple* vals) nogil

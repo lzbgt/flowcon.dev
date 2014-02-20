@@ -3,13 +3,29 @@
 
 #include <string.h>
 
+#ifndef FLOW_INIT_COLLECTTION
+
+#define FLOW_INIT_COLLECTTION(CUR, VALS) \
+    (CUR)->next = 0;					 \
+    (CUR)->values = *(VALS); 	   		 \
+    (CUR)->bytes = 0;			   		 \
+    (CUR)->packets = 0;
+
+#endif //FLOW_INIT_COLLECTTION
+
+#ifndef MKFLOW_CRC(VALS)
+
+#define MKFLOW_CRC(VALS)  adler32(1, (void*)(VALS), sizeof(*(VALS)))
+
+#endif //MKFLOW_CRC
+
 static inline Collection* lookup(const ipfix_query_buf_t* buf, const Values* vals, ipfix_query_pos_t* poses){
 	uLong crc;
 	uint32_t idx, pos, last;
 	Collection* collect = (Collection*)buf->data;
     Collection* current;
 
-	crc = adler32(1, (void*)vals, sizeof(*vals));
+	crc = MKFLOW_CRC(vals);
 	idx = ((uint32_t)crc) & buf->mask;
 
 	pos = buf->poses[idx];
@@ -42,10 +58,7 @@ static inline Collection* lookup(const ipfix_query_buf_t* buf, const Values* val
 		current = collect + last;
 		poses->bufpos++;
 	}
-    current->next = 0;
-    current->values = *vals;
-    current->bytes = 0;
-    current->packets = 0;
+	FLOW_INIT_COLLECTTION(current, vals);
 
 /*	printf("   +++crc:0x%08x idx:%d pos:%d exp:0x%08x\n", (unsigned int)crc,
 			idx, last, current->values.exporter);*/
