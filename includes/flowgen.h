@@ -13,7 +13,7 @@
 
 #endif //FLOW_INIT_COLLECTTION
 
-#ifndef MKFLOW_CRC(VALS)
+#ifndef MKFLOW_CRC
 
 #define MKFLOW_CRC(VALS)  adler32(1, (void*)(VALS), sizeof(*(VALS)))
 

@@ -4,7 +4,7 @@ Created on Jan 24, 2014
 @author: schernikov
 '''
 
-import socket, urlparse, datetime
+import socket, urlparse, datetime, os
 
 import native, flowtools.settings
 
@@ -84,7 +84,8 @@ class Sources(object):
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
         self._appflows = colmod.AppFlowCollector("C"+self._name, self._attrs)
         self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
-        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, flowtools.settings.maxminutes, stamp)
+        libname = os.path.join(native.libloc, 'minutescoll.so')
+        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, flowtools.settings.maxminutes, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds

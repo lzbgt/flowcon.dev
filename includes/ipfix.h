@@ -124,7 +124,7 @@ typedef struct PACKED AppFlowValues {
     uint32_t pos;
 } AppFlowValues_t;
 
-typedef int (*FlowAppCallback)(void* obj, const ipfix_flow_tuple_t* flow, AppFlowValues_t* vals);
+typedef int (*FlowAppCallback)(void* obj, const ipfix_store_flow_t* flow, AppFlowValues_t* vals);
 
 typedef struct PACKED ipfix_query_info {
 	const ipfix_store_counts_t* 	first;
@@ -156,6 +156,24 @@ typedef struct PACKED ipfix_app_flow {
 	indextype			inattrindex;
 	indextype			outattrindex;
 } ipfix_app_flow_t;
+
+typedef struct PACKED AppFlowObjects {
+	void* minutes;
+	void* apps;
+	void* flows;
+} AppFlowObjects_t;
+
+typedef struct PACKED AppsCollection {
+    uint32_t    		next;
+
+    AppFlowValues_t		values;
+
+    uint64_t    		inbytes;
+    uint64_t    		inpackets;
+    uint64_t    		outbytes;
+    uint64_t    		outpackets;
+} AppsCollection_t;
+
 
 typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
 									   const ipfix_query_info_t* info,

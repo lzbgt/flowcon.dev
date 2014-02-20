@@ -4,22 +4,11 @@
 #include "ipfix.h"
 
 typedef AppFlowValues_t Values;
+typedef AppsCollection_t Collection;
 
-typedef struct PACKED Collection_t{
-    uint32_t    next;
-
-    Values		values;
-
-    uint64_t    inbytes;
-    uint64_t    inpackets;
-    uint64_t    outbytes;
-    uint64_t    outpackets;
-} Collection;
-    
 uint32_t fwidth_minutes = sizeof(Collection);
 
-
-uint32_t foffset_minutes = 0;
+uint32_t foffset_minutes = (uint32_t)((uint64_t)(&(((Collection*)0)->outbytes)));
 
 #define FLOW_INIT_COLLECTTION(CUR, VALS) \
     (CUR)->next = 0;					 \
@@ -49,10 +38,9 @@ void fcheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info
     while(poses->countpos < info->count){
         const ipfix_store_counts_t* counters = firstcount+poses->countpos;
         const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;
-        const ipfix_flow_tuple_t* flow = &flowentry->flow;
 
         {
-        	ingress = callback(callobj, flow, &vals);
+        	ingress = callback(callobj, flowentry, &vals);
 
             collect = lookup(buf, &vals, poses);
             if(collect == NULL){

@@ -1,6 +1,6 @@
 
 from common cimport *
-from collectors cimport FlowCollector
+from collectors cimport FlowCollector, AppFlowCollector
 from nquery cimport FlowQuery, QueryBuffer
 from napps cimport Apps
 
@@ -31,7 +31,7 @@ cdef class SecondsCollector(object):
     				  uint64_t neweststamp, uint64_t oldeststamp, uint32_t step) nogil
     cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, ipfix_query_info* qinfo,
                        uint32_t oldestpos, uint32_t lastpos) nogil
-    cdef void _initqinfo(self, ipfix_query_info qinfo) nogil
+    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil
     cdef uint32_t currentpos(self) nogil
 
 cdef class MinutesCollector(object):
@@ -40,4 +40,4 @@ cdef class MinutesCollector(object):
     cdef uint32_t _prevsecpos
     cdef FlowQuery _query
 
-    cdef int _onapp(self, const ipfix_flow_tuple* flow, ipfix_app_tuple* vals) nogil
+    cdef int _onapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil

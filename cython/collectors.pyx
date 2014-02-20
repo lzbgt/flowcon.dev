@@ -325,25 +325,17 @@ cdef class AppFlowCollector(Collector):
         self.dtypes = [('next',     'u%d'%sizeof(flow.next)),
                        ('crc',      'u%d'%sizeof(flow.crc)),
                        ('app',     'a%d'%sizeof(flow.app)),
-                       ('attrindex','u%d'%sizeof(flow.attrindex))]
+                       ('inattrindex','u%d'%sizeof(flow.inattrindex)),
+                       ('outattrindex','u%d'%sizeof(flow.outattrindex))]
 
     @cython.boundscheck(False)
-    cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil:
-        cdef ipfix_store_attributes* prev
-        cdef ipfix_store_attributes* curr
-        cdef ipfix_app_flow* flowrec = <ipfix_app_flow*>entry
-        cdef int report = False # disable reporting for now
+    cdef void _oningress(self, ipfix_store_entry* entry, uint32_t index) nogil:
+        cdef ipfix_app_flow* aflow = <ipfix_app_flow*>entry
+        
+        aflow.inattrindex = index
 
-        #flowrec.refcount += 1
-
-        if flowrec.attrindex != index:
-            if flowrec.attrindex != 0 and report:
-                with gil:
-                    prev = <ipfix_store_attributes*>self._attributes._get(flowrec.attrindex)
-                    curr = <ipfix_store_attributes*>self._attributes._get(index)
-                    
-                    logger('%s changed for app (%s)\n  <- %s\n  -> %s'%(self._name, showapp(cython.address(flowrec.app)), 
-                                                                         showattr(cython.address(prev.attributes)),
-                                                                         showattr(cython.address(curr.attributes))))
-            flowrec.attrindex = index
-            
+    @cython.boundscheck(False)
+    cdef void _onegress(self, ipfix_store_entry* entry, uint32_t index) nogil:
+        cdef ipfix_app_flow* aflow = <ipfix_app_flow*>entry
+        
+        aflow.outattrindex = index

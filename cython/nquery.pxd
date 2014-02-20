@@ -35,6 +35,7 @@ cdef class QueryBuffer(object):
 	cdef char* repcallback(self, size_t* size_p)
 	cdef void _extraresize(self, uint32_t nbytes)
 	cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter, int field, int slice)
+	cdef char* release(self, uint32_t* pcount) nogil
 	
 cdef class FlowQuery(Query):
 	cdef fexpchecktype expchecker

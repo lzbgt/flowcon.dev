@@ -153,22 +153,31 @@ cdef class QueryBuffer(object):
         return self._extradata
 
     @cython.boundscheck(False)
+    cdef char* release(self, uint32_t* pcount) nogil:
+        self._buf.poses = NULL
+        self._buf.mask = 0
+        if self._positions.bufpos <= 1:
+            pcount[0] = 0
+        else:
+            pcount[0] = self._positions.bufpos-1
+        return (<char*>self._buf.data) + self._width
+
+    @cython.boundscheck(False)
     cdef bytes onreport(self, const ipfix_query_buf* buf, ipfix_collector_report_t reporter, int field, int slice):
         cdef bytes result
         cdef size_t printed
-        cdef uint32_t count, size = self._extras.size, first
+        cdef uint32_t count, size = self._extras.size, skip
         cdef char* input
+        cdef char* data
         cdef eview
         cdef uint32_t suffix
         cdef dtype
         cdef int accending = 1
 
-        self._buf.poses = NULL
-        self._buf.mask = 0
+        data = self.release(cython.address(count))
 
-        count = self._positions.bufpos
-        if count <= 1: return <bytes>''
-        first = 1
+        if count <= 0: return <bytes>''
+        skip = 0
         
         if field > 0:
             suffix = self._width - (self._offset+sizeof(uint64_t)*2)
@@ -179,15 +188,14 @@ cdef class QueryBuffer(object):
             fnm  = dtype[field][0]
 
             if suffix > 0: dtype.append(('suffix',  'a%d'%(suffix)))
-            eview = self._entries[self._width:(count*self._width)].view(dtype=dtype)
+            eview = self._entries[self._width:((count+1)*self._width)].view(dtype=dtype)    # skip first entry
             
             if slice != 0:
                 if slice > 0:   # max elements needed
                     if slice < eview.size:
-                        first = eview.size-slice    # first in eview array
-                        eview.partition(first, order=[fnm])
-                        eview[first:].sort(order=[fnm])
-                        first += 1  # skip first in original array
+                        skip = eview.size-slice    # first in eview array
+                        eview.partition(skip, order=[fnm])
+                        eview[skip:].sort(order=[fnm])
                     else:
                         slice = eview.size
                         eview.sort(order=[fnm])
@@ -201,11 +209,11 @@ cdef class QueryBuffer(object):
                         slice = eview.size
                         eview.sort(order=[fnm])
             else:
-                slice = count-1 # all except first
+                slice = count # all available
         else:
-            slice = count-1 # all except first
+            slice = count # all available
                 
-        input = <char*>self._buf.data + first*self._width # skip first entry; it is never used
+        input = <char*>data + skip*self._width # skip few entries if needed
 
         printed = reporter(cython.address(self._positions), accending, 
                            input, slice, 

@@ -10,7 +10,6 @@ from common cimport *
 
 #from collectors
 from misc cimport logger, minsize, growthrate, shrinkrate
-from collectors cimport AppFlowCollector 
 from napps cimport Apps
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
@@ -231,7 +230,7 @@ cdef class SecondsCollector(object):
         
         cdef ipfix_query_info qinfo
         
-        self._initqinfo(qinfo)
+        self._initqinfo(cython.address(qinfo))
 
         if step == 0:
             qinfo.stamp = neweststamp
@@ -255,7 +254,7 @@ cdef class SecondsCollector(object):
         return self._currentsec
 
     @cython.boundscheck(False)
-    cdef void _initqinfo(self, ipfix_query_info qinfo) nogil:
+    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil:
         qinfo.flows = <ipfix_store_flow*>self._flows.entryset
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
@@ -315,19 +314,26 @@ cdef class SecondsCollector(object):
         apps.remove(self._flows.getflows(), start, count)
         self._flows.remove(start, count)
 
+
+cdef int onappcallback(void* obj, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil:
+    cdef AppFlowObjects* objects = <AppFlowObjects*>obj
+    
+    return (<MinutesCollector>objects.minutes)._onapp(<Apps>objects.apps, 
+                                                      <AppFlowCollector>objects.flows, 
+                                                      flowentry, vals)
+
 cdef class MinutesCollector(object):
  
-    def __init__(self, nm, uint32_t ip, uint32_t minutesdepth, uint32_t stamp):
+    def __init__(self, nm, uint32_t ip, libname, uint32_t minutesdepth, uint32_t stamp):
         self._name = nm
         self._ip = ip
         self._prevsecpos = INVALID
-        self._query = FlowQuery('minutescoll.so', 'minutes')
+        self._query = FlowQuery(libname, 'minutes')
         
     @cython.boundscheck(False)
     def onminute(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
-        cdef uint32_t appidx, cursecpos
-        cdef uin
-        
+        cdef uint32_t appidx, cursecpos, count, pos
+
         cursecpos = seccoll.currentpos()
         
         if self._prevsecpos == INVALID:
@@ -338,37 +344,50 @@ cdef class MinutesCollector(object):
         
         cdef ipfix_query_info qinfo
         
-        seccoll._initqinfo(qinfo)
+        seccoll._initqinfo(cython.address(qinfo))
         
-        qinfo.callback = <FlowAppCallback>self._onapp
-        qinfo.callobj = <void*>self
+        cdef AppFlowObjects objects
+        
+        objects.minutes = <void*>self
+        objects.apps = <void*>apps
+        objects.flows = <void*>flows
+        
+        qinfo.callback = <FlowAppCallback>onappcallback
+        qinfo.callobj = cython.address(objects)
         
         seccoll._collect(self._query, qbuf, cython.address(qinfo), self._prevsecpos, cursecpos)
         
-#        appidx = app.getflowapp(flow)
-#
-#        flows._add(cython.address(), appidx, sizeof())
-
+        cdef AppsCollection* acollection = <AppsCollection*>qbuf.release(cython.address(count))
+        cdef AppsCollection* entry
+        for pos in range(count):
+            entry = acollection + pos
+            
+            
         self._prevsecpos = cursecpos
         
     @cython.boundscheck(False)
-    cdef int _onapp(self, const ipfix_flow_tuple* flow, AppFlowValues* vals) nogil:
+    cdef int _onapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil:
         cdef int ingress
         cdef ipfix_app_tuple atup
         cdef uint32_t pos
         cdef ipfix_store_entry* entryrec
+        cdef const ipfix_flow_tuple* flow = cython.address(flowentry.flow)
         
-        atup.application = app.getflowapp(flow, cython.address(ingress))
+        atup.application = apps.getflowapp(flow, cython.address(ingress))
         
         if ingress == 0:
-            atup.srcaddr = flow->dstaddr
-            atup.dstaddr = flow->srcaddr
+            atup.srcaddr = flow.dstaddr
+            atup.dstaddr = flow.srcaddr
+            entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
+            
+            flows._onegress(entryrec, flowentry.attrindex)
         else:
-            atup.srcaddr = flow->srcaddr
-            atup.dstaddr = flow->dstaddr
+            atup.srcaddr = flow.srcaddr
+            atup.dstaddr = flow.dstaddr
+            entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
 
-        entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
-        
+            flows._oningress(entryrec, flowentry.attrindex)
+
         vals.crc = entryrec.crc
         vals.pos = pos
 
