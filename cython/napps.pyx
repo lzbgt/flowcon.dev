@@ -52,6 +52,7 @@ cdef class Apps(Collector):
 
         for pos in range(num):
             index = counts[pos].flowindex
+            
             flow = cython.address(flows[index].flow)
             portcounts[flow.srcport] += 1
             portcounts[flow.dstport] += 1

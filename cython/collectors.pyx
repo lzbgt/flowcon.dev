@@ -160,7 +160,7 @@ cdef class Collector(object):
             iset[ind] = pos
     
     @cython.boundscheck(False)
-    cdef void _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz):
+    cdef void _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz) nogil:
         cdef ipfix_store_entry* prevrec
         cdef uint32_t ind, prevpos
         cdef unsigned char* eset = self.entryset
@@ -174,7 +174,8 @@ cdef class Collector(object):
             prevpos = prevrec.next
             while prevpos != pos:
                 if prevpos == 0:   # this should never happen
-                    logger('unexpected value for prevrec.next; prevpos:%d ind:%d pos:%d'%(prevpos, ind, pos))
+                    with gil:
+                        logger('unexpected value for prevrec.next; prevpos:%d ind:%d pos:%d'%(prevpos, ind, pos))
                     return
                 prevrec = <ipfix_store_entry*>(eset+prevpos*sz)
                 prevpos = prevrec.next
@@ -235,7 +236,7 @@ cdef class FlowCollector(Collector):
         return <ipfix_store_flow*>self.entryset
 
     @cython.boundscheck(False)
-    cdef void remove(self, const ipfix_store_counts* counts, uint32_t num):
+    cdef void remove(self, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef unsigned char* eset = self.entryset
         cdef int sz = self._width
         cdef ipfix_store_flow* flow
@@ -267,7 +268,8 @@ cdef class FlowCollector(Collector):
                 flow.attrindex = 0
         
         if maxindex > 0:            # something was actually deleted
-            self._shrink(maxindex)    # try to shrink
+            with gil:
+                self._shrink(maxindex)    # try to shrink
         
     @cython.boundscheck(False)
     cdef void _shrink(self, uint32_t maxpos):

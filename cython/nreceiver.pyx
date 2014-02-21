@@ -25,21 +25,14 @@ def _dummy():
 
 cdef class Receiver(object):
     cdef sourceset
-    cdef uint32_t exporter
-    cdef SecondsCollector seccollect
-    cdef Collector flowcollect
-    cdef Collector attrcollect
+    cdef ExporterSet eset
+
     cdef RawQuery first
 
     def __cinit__(self, sourceset):
-#        print "header size",sizeof(ipfix_header)
-#        print "set size",sizeof(ipfix_template_set_header)
-#        print "flow size",sizeof(ipfix_flow)
         self.sourceset = sourceset
-        self.exporter = 0
-        self.seccollect = None
-        self.flowcollect = None
-        self.attrcollect = None
+        self.eset.exporter = 0
+
         self.first = None
         
     def __dealloc__(self):
@@ -76,75 +69,80 @@ cdef class Receiver(object):
         return
 
     @cython.boundscheck(False)
-    cdef void _onflows(self, const ipfix_flow* inflow, int bytes):
-        cdef int count = bytes/sizeof(ipfix_flow)
-        cdef ipfix_flow_tuple ftup
-        cdef ipfix_flow_tuple* ftup_p
-        cdef unsigned char* ptr
-        cdef ipfix_attributes atup
-        cdef ipfix_attributes* atup_p
-        cdef uint32_t (*fadd)(Collector slf, const void* ptr, uint32_t index, int dsize)
-        cdef uint32_t (*aadd)(Collector slf, const void* ptr, uint32_t index, int dsize)
-        cdef void     (*tadd)(SecondsCollector slf, uint32_t bts, uint32_t packets, uint32_t flowindex)
-        cdef uint32_t index, pos, exporter, fexp
-        cdef Collector fcol, acol
-        cdef SecondsCollector scol
+    cdef void _onflows(self, const ipfix_flow* inflow, int bytes) nogil:
+        cdef int count
         cdef ipfix_flow outflow
-        cdef ipfix_flow* flow
-        
-        flow = cython.address(outflow)
-        
-        exporter = self.exporter
-        fexp = ntohl(inflow.exporter)
-        
-        if exporter != fexp:
-            exporter = fexp
-            self.exporter = exporter
-            self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(exporter)
+        cdef uint32_t index
+        cdef ipfix_flow_tuple ftup
+        cdef ipfix_attributes atup
+        cdef ExporterSet* eset
 
-        fcol = self.flowcollect
-        acol = self.attrcollect
-        scol = self.seccollect
-        fadd = fcol._add
-        aadd = acol._add
-        tadd = scol._add
+        eset = cython.address(self.eset)
 
-        #logger("%d"%count)
-        while count > 0:
-            convertflow(inflow, flow)
-            
-            self.onqueries(flow)
-            
-            if exporter != flow.exporter:
-                exporter = flow.exporter
-                # pull matching collectors and save them for later use
-                self.flowcollect, self.attrcollect, self.seccollect = self.sourceset.find(exporter)
-                self.exporter = exporter
-                # reinit everything for new collectors
-                fcol = self.flowcollect
-                acol = self.attrcollect
-                scol = self.seccollect
-                fadd = fcol._add
-                aadd = acol._add
-                tadd = scol._add
-                    
-            ftup_p = cython.address(ftup)
-            atup_p = cython.address(atup)
-            
-            copyflow(flow, ftup_p)
-            copyattr(flow, atup_p)
-            
-            # register attributes
-            index = aadd(acol, atup_p, 0, sizeof(ipfix_attributes))
-            # register flow with attributes 
-            index = fadd(fcol, ftup_p, index, sizeof(ipfix_flow_tuple))
-            # register counters with flow
-            tadd(scol, flow.bytes, flow.packets, index)
+        count = bytes/sizeof(ipfix_flow)
+        
+        if self.first is None:
+            while count > 0:
+                convertflow(inflow, cython.address(outflow))
+                
+                if eset.exporter != outflow.exporter:
+                    with gil:
+                        self._setupexporter(eset, cython.address(outflow))
+                
+                copyflow(cython.address(outflow), cython.address(ftup))
+                copyattr(cython.address(outflow), cython.address(atup))
+                
+                # register attributes
+                index = eset.aadd(eset.aobj, cython.address(atup), 0, sizeof(ipfix_attributes))
+                # register flow with attributes 
+                index = eset.fadd(eset.fobj, cython.address(ftup), index, sizeof(ipfix_flow_tuple))
+                # register counters with flow
+                eset.tadd(eset.tobj, outflow.bytes, outflow.packets, index)
+    
+                inflow += 1
+                count -= 1
+        else:
+            while count > 0:
+                convertflow(inflow, cython.address(outflow))
+                
+                with gil:
+                    self.onqueries(cython.address(outflow))
 
-            #logger("  (%s)"%(showflow(cython.address(ftup))))
-            inflow += 1
-            count -= 1
-            
+                if eset.exporter != outflow.exporter:
+                    with gil:
+                        self._setupexporter(eset, cython.address(outflow))
+                
+                copyflow(cython.address(outflow), cython.address(ftup))
+                copyattr(cython.address(outflow), cython.address(atup))
+                
+                # register attributes
+                index = eset.aadd(eset.aobj, cython.address(atup), 0, sizeof(ipfix_attributes))
+                # register flow with attributes 
+                index = eset.fadd(eset.fobj, cython.address(ftup), index, sizeof(ipfix_flow_tuple))
+                # register counters with flow
+                eset.tadd(eset.tobj, outflow.bytes, outflow.packets, index)
+    
+                inflow += 1
+                count -= 1
+
+    @cython.boundscheck(False)
+    cdef void _setupexporter(self, ExporterSet* eset, const ipfix_flow* flow):
+        cdef SecondsCollector seccollect
+        cdef Collector flowcollect
+        cdef Collector attrcollect
+
+        eset.exporter = flow.exporter
+
+        flowcollect, attrcollect, seccollect = self.sourceset.find(flow.exporter)
+        
+        eset.fobj = <void*>flowcollect
+        eset.aobj = <void*>attrcollect
+        eset.tobj = <void*>seccollect
+        
+        eset.fadd = <FlowAdd>flowcollect._add
+        eset.aadd = <AppAdd>attrcollect._add
+        eset.tadd = <TimeAdd>seccollect._add
+
     @cython.boundscheck(False)
     cdef void onqueries(self, const ipfix_flow* flow):
         cdef RawQuery next

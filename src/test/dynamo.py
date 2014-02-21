@@ -75,8 +75,7 @@ def periodic(collect, fields):
     secset = []
     for ip, s in srcs._srcs.items():
         if rq.matchsource(ip) == 0: continue
-        _, _, secs = s.getcollectors()
-        secset.append(secs)
+        secset.append(s.getseconds())
 
     print "first",first, "last",stamp, "diff",stamp-first, " before",stamp+3500
 

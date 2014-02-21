@@ -96,6 +96,15 @@ typedef struct PACKED ipfix_store_counts {
 	uint32_t			packets;
 } ipfix_store_counts_t;
 
+typedef struct PACKED ipfix_app_counts {
+	indextype		 	appindex;
+
+    uint64_t    		inbytes;
+    uint64_t    		inpackets;
+    uint64_t    		outbytes;
+    uint64_t    		outpackets;
+} ipfix_app_counts_t;
+
 typedef struct PACKED ipfix_query_buf {
 	void*				data;
 	uint32_t 			count;
@@ -127,7 +136,7 @@ typedef struct PACKED AppFlowValues {
 typedef int (*FlowAppCallback)(void* obj, const ipfix_store_flow_t* flow, AppFlowValues_t* vals);
 
 typedef struct PACKED ipfix_query_info {
-	const ipfix_store_counts_t* 	first;
+	const void* 					entries;
 	uint32_t 				  		count;
 	const ipfix_store_flow_t* 		flows;
 	const ipfix_store_attributes_t* attrs;
@@ -174,6 +183,19 @@ typedef struct PACKED AppsCollection {
     uint64_t    		outpackets;
 } AppsCollection_t;
 
+typedef uint32_t (*FlowAdd)(void* slf, const void* ptr, uint32_t index, int dsize);
+typedef uint32_t (*AppAdd)(void* slf, const void* ptr, uint32_t index, int dsize);
+typedef void     (*TimeAdd)(void* slf, uint32_t bts, uint32_t packets, uint32_t flowindex);
+
+typedef struct PACKED ExporterSet {
+	uint32_t 	exporter;
+	FlowAdd		fadd;
+	AppAdd		aadd;
+	TimeAdd		tadd;
+	void* 		fobj;
+	void* 		aobj;
+	void* 		tobj;
+} ExporterSet_t;
 
 typedef void (*ipfix_collector_call_t)(const ipfix_query_buf_t* buf,
 									   const ipfix_query_info_t* info,

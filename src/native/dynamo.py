@@ -97,7 +97,7 @@ def writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchec
                                      "const ipfix_query_info_t* info",
                                      "ipfix_query_pos_t* poses")
     f.write("    %s* collect;\n    Values vals;\n"%(colltypename))
-    f.write("    const ipfix_store_counts_t* firstcount = info->first;\n")
+    f.write("    const ipfix_store_counts_t* firstcount = (ipfix_store_counts_t*)info->entries;\n")
     if flowtypes or attrtypes or flowchecks or attrchecks:
         f.write("    const ipfix_store_flow_t* firstflow = info->flows;\n")
         if attrtypes or attrchecks:

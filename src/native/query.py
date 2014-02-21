@@ -138,14 +138,17 @@ class Query(object):
         
         minset = self._schedule.get('minutes', None)
         if minset:
-            pass        
+            minutes = []
+            for src in sources:
+                minutes.append(src.getminutes())
+            newest, oldest = minset
+            self._native.runminutes(qbuf._native, minutes, newest, oldest, step)
 
         secset = self._schedule.get('seconds', None)
         if secset:
             seconds = []
             for src in sources:
-                _, _, sec = src.getcollectors()
-                seconds.append(sec)
+                seconds.append(src.getseconds())
             newest, oldest = secset
             self._native.runseconds(qbuf._native, seconds, newest, oldest, step)
         
@@ -231,8 +234,7 @@ class PeriodicQuery(FQuery):
     def addsource(self, src):
         if not self._native.matchsource(src.ip): return
         self._sources.add(src)
-        _, _, sec = src.getcollectors()
-        self._seconds.append(sec)
+        self._seconds.append(src.getseconds())
 
     def is_live(self):
         return True

@@ -32,7 +32,7 @@ void fcheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info
     Values vals;
     FlowAppCallback callback = info->callback;
     void* callobj = info->callobj;
-    const ipfix_store_counts_t* firstcount = info->first;
+    const ipfix_store_counts_t* firstcount = (ipfix_store_counts_t*)info->entries;
     const ipfix_store_flow_t* firstflow = info->flows;
 
     while(poses->countpos < info->count){

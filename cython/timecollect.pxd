@@ -4,39 +4,49 @@ from collectors cimport FlowCollector, AppFlowCollector
 from nquery cimport FlowQuery, QueryBuffer
 from napps cimport Apps
 
-cdef class SecondsCollector(object):
+cdef class TimeCollector(object):
     cdef _name
     cdef uint32_t _ip
     cdef _counters
-    cdef ipfix_store_counts* _counterset
-    cdef ipfix_store_counts* _last
-    cdef ipfix_store_counts* _first
-    cdef ipfix_store_counts* _end
+    cdef void* _counterset
+    cdef void* _last
+    cdef void* _first
+    cdef void* _end
+    cdef uint32_t _width
     cdef uint32_t _maxcount
     cdef uint32_t _count
     cdef uint32_t _depth
-    cdef uint32_t [:] _seconds
+    cdef uint32_t [:] _ticks
     cdef uint64_t [:] _stamps
-    cdef uint32_t _currentsec
-    cdef FlowCollector _flows
-	
-    cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex)
+    cdef uint32_t _currenttick
+
     cdef void _alloc(self, uint32_t size)
+    cdef void* _addentry(self) nogil
     cdef void _grow(self)
-    cdef _fixseconds(self, ipfix_store_counts* start, uint32_t offset, uint32_t startsz)
-    cdef void _removeold(self, Apps apps, uint32_t lastpos, uint32_t nextpos)
-    cdef void _rmold(self, Apps apps, const ipfix_store_counts* start, uint32_t count)
+    cdef void _fixticks(self, void* start, uint32_t sz, uint32_t offset, uint32_t startsz) nogil
+    cdef uint32_t ontick(self, uint64_t stamp) nogil
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil
+    cdef uint32_t currentpos(self) nogil
     cdef void collect(self, FlowQuery q, QueryBuffer bufinfo, 
-    				  uint64_t neweststamp, uint64_t oldeststamp, uint32_t step) nogil
+                       uint64_t neweststamp, uint64_t oldeststamp, uint32_t step) nogil
+    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil
     cdef void _collect(self, FlowQuery q, QueryBuffer bufinfo, ipfix_query_info* qinfo,
                        uint32_t oldestpos, uint32_t lastpos) nogil
-    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil
-    cdef uint32_t currentpos(self) nogil
+    cdef void _removeold(self, uint32_t lastpos, uint32_t nextpos) nogil
+    cdef void _rmold(self, const void* start, uint32_t count) nogil
 
-cdef class MinutesCollector(object):
-    cdef _name
-    cdef uint32_t _ip
+cdef class SecondsCollector(TimeCollector):
+    cdef FlowCollector _flows
+    cdef Apps _apps 
+
+    cdef void _add(self, uint32_t bytes, uint32_t packets, uint32_t flowindex) nogil
+
+    cdef void _rmold(self, const void* start, uint32_t count) nogil
+
+    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil
+
+
+cdef class MinutesCollector(TimeCollector):
     cdef uint32_t _prevsecpos
     cdef FlowQuery _query
 

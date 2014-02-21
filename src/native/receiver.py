@@ -89,6 +89,12 @@ class Sources(object):
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
+    
+    def getseconds(self):
+        return self._seconds
+    
+    def getminutes(self):
+        return self._minutes    
         
     def address(self):
         return self.name

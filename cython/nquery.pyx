@@ -297,6 +297,14 @@ cdef class FlowQuery(Query):
         
         for sec in secset:
             sec.collect(self, qbuf, newstamp, oldstamp, step)
+            
+    @cython.boundscheck(False)
+    def runminutes(self, QueryBuffer qbuf, minset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
+        pass
+#        cdef SecondsCollector sec
+#        
+#        for sec in secset:
+#            sec.collect(self, qbuf, newstamp, oldstamp, step)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
