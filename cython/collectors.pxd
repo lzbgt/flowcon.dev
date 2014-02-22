@@ -35,6 +35,7 @@ cdef class AttrCollector(Collector):
     pass
 
 cdef class AppFlowCollector(Collector):
+    cdef Collector _apps
     cdef AttrCollector _attributes
 
     cdef void _oningress(self, ipfix_store_entry* entry, uint32_t index) nogil

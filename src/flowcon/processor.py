@@ -104,7 +104,7 @@ class FlowProc(connector.Connection):
         self._history = History()
         self._apps = native.receiver.Apps()
         
-        receiver.sourcecallback(self.onnewsource)
+        receiver.sourcecallback(self._apps, self.onnewsource)
 
     def _send(self, addr, res):
         res = zmq.utils.jsonapi.dumps(res)
@@ -129,7 +129,7 @@ class FlowProc(connector.Connection):
         stamp = self._history.seconds().now
         
         for source in self._nreceiver.sources():
-            source.on_time(self._nbuf, self._apps, stamp, mins, hours, days)
+            source.on_time(self._nbuf, stamp, mins, hours, days)
             
         for per in self._periodic.values():
             res = per.on_time(self._nbuf, now, stamp)

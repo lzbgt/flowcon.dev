@@ -126,7 +126,13 @@ typedef struct PACKED ipfix_app_tuple {
 	uint32_t application;
 	uint32_t srcaddr;
 	uint32_t dstaddr;
-} ipfix_app_tuple_t;
+} ipfix_app_tuple_t, ipfix_app_tuple_in_t;
+
+typedef struct PACKED ipfix_app_tuple_out {	/* must be the same as ipfix_app_tuple but with src and dst reversed */
+	uint32_t application;
+	uint32_t dstaddr;
+	uint32_t srcaddr;
+} ipfix_app_tuple_out_t;
 
 typedef struct PACKED AppFlowValues {
     uint32_t crc;
@@ -135,29 +141,6 @@ typedef struct PACKED AppFlowValues {
 
 typedef int (*FlowAppCallback)(void* obj, const ipfix_store_flow_t* flow, AppFlowValues_t* vals);
 
-typedef struct PACKED ipfix_query_info {
-	const void* 					entries;
-	uint32_t 				  		count;
-	const ipfix_store_flow_t* 		flows;
-	const ipfix_store_attributes_t* attrs;
-	uint64_t						stamp;
-	uint32_t 				  		exporter;
-	FlowAppCallback					callback;
-	void* 							callobj;
-} ipfix_query_info_t;
-
-typedef struct PACKED ipfix_apps_ports {
-	uint8_t  			protocol;
-	uint16_t			p1;
-	uint16_t			p2;
-} ipfix_apps_ports_t;
-
-typedef struct PACKED ipfix_apps {
-	indextype				next;
-	uint32_t				crc;
-	ipfix_apps_ports_t 		ports;
-} ipfix_apps_t;
-
 typedef struct PACKED ipfix_app_flow {
 	indextype			next;
 	uint32_t			crc;
@@ -165,6 +148,43 @@ typedef struct PACKED ipfix_app_flow {
 	indextype			inattrindex;
 	indextype			outattrindex;
 } ipfix_app_flow_t;
+
+typedef struct PACKED ipfix_apps_ports {
+	uint8_t  			protocol;
+	uint16_t			src;
+	uint16_t			dst;
+} ipfix_apps_ports_t;
+
+typedef struct PACKED ipfix_apps_ports_in { /* must be the same as ipfix_apps_ports but with proper field names */
+	uint8_t  			protocol;
+	uint16_t			srcport;
+	uint16_t			dstport;
+} ipfix_apps_ports_in_t;
+
+typedef struct PACKED ipfix_apps_ports_out { /* must be the same as ipfix_apps_ports but with proper field names and reversed */
+	uint8_t  			protocol;
+	uint16_t			dstport;
+	uint16_t			srcport;
+} ipfix_apps_ports_out_t;
+
+typedef struct PACKED ipfix_apps {
+	indextype				next;
+	uint32_t				crc;
+	ipfix_apps_ports_t 		ports;
+} ipfix_apps_t;
+
+typedef struct PACKED ipfix_query_info {
+	const void* 					entries;
+	uint32_t 				  		count;
+	const ipfix_store_flow_t* 		flows;
+	const ipfix_app_flow_t* 		appflows;
+	const ipfix_apps_t*				apps;
+	const ipfix_store_attributes_t* attrs;
+	uint64_t						stamp;
+	uint32_t 				  		exporter;
+	FlowAppCallback					callback;
+	void* 							callobj;
+} ipfix_query_info_t;
 
 typedef struct PACKED AppFlowObjects {
 	void* minutes;

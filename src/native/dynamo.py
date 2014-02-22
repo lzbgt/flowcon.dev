@@ -68,29 +68,44 @@ def gentimeflow(fields, gencall, gencls, gennm):
 
 def writecheckers(f, css, qid, explns):
     flowchecks = {}
+    appchecks = {}
     attrchecks = {}
+    
     for ck, cv in css.items():
         ftype = query.ntypes.Type.all.get(ck, None)
         if not ftype: continue
         if ftype in query.Query.specialtuple: continue
         if ftype in query.Query.flowtuple:
             flowchecks[ck] = cv
+            appchecks[ftype.name] = ('flow->' if ftype.name.endswith('addr') else 'a->', cv)
         else:
             attrchecks[ck] = cv
 
     if flowchecks:
         writelocalhead(f, 'int check_flow_tuple', 'const ipfix_flow_tuple_t* entry');
         wcondgroup(f, flowchecks)
+        
+    if appchecks:
+        writeaflow(f, appchecks, 'INGRESS', 'in')
+        writeaflow(f, appchecks, 'EGRESS', 'out')
 
     if attrchecks:
         writelocalhead(f, 'int check_flow_attr', 'const ipfix_attributes_t* entry');
         wcondgroup(f, attrchecks)
     
+
     wfunchead(f, qid, 'int fexporter', "uint32_t exporter")
-    wcondition(f, explns)
+    wcondition(f, '', explns)
     writecheckerend(f);
     
     return flowchecks, attrchecks
+
+def writeaflow(f, checks, nm, d):
+    writelocalhead(f, 'int check_aflow_%s'%(nm.lower()), 'const ipfix_app_tuple_%s_t* flow, const ipfix_apps_ports_%s_t* a'%(d, d));
+    for fk in sorted(checks.keys()):
+        pref, cv = checks[fk]
+        wcondition(f, pref, cv)
+    writecheckerend(f)
 
 def writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames):
     wfunchead(f, qid, 'void fcheck', "const ipfix_query_buf_t* buf",
@@ -146,6 +161,92 @@ def writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchec
         poses->countpos++;
     }\n""")
     writefunctail(f)
+    
+def writeacheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames):
+    ingress = {
+     'dstaddr':'aflow->dstaddr',
+     'srcaddr':'aflow->srcaddr',
+     'protocol':'app->protocol',
+     'srcport':'app->src',
+     'dstport':'app->dst'
+    }
+    egress = {
+     'srcaddr':'aflow->dstaddr',
+     'dstaddr':'aflow->srcaddr',
+     'protocol':'app->protocol',
+     'dstport':'app->src',
+     'srcport':'app->dst'
+    }
+    
+    wfunchead(f, qid, 'void acheck', "const ipfix_query_buf_t* buf",
+                                     "const ipfix_query_info_t* info",
+                                     "ipfix_query_pos_t* poses")
+    f.write("    %s* collect;\n    Values vals;\n"%(colltypename))
+    f.write("    const ipfix_app_counts_t* firstcount = (ipfix_app_counts_t*)info->entries;\n")
+    if flowtypes or attrtypes or flowchecks or attrchecks:
+        f.write("    const ipfix_app_flow_t* firstflow = info->appflows;\n")
+        f.write("    const ipfix_apps_t* appsset = (ipfix_apps_t*)info->apps;\n")
+        if attrtypes or attrchecks:
+            f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
+    f.write("\n")
+
+    for enm in expnames:
+        f.write("    vals.%s = info->%s;\n"%(enm, enm))
+
+    if not flowtypes and not attrtypes:
+        wlookupcall(f, "    ")
+    f.write("\n")
+    f.write("    while(poses->countpos < info->count){\n")
+    f.write("        const ipfix_app_counts_t* counters = firstcount+poses->countpos;\n")
+    if flowtypes or attrtypes or flowchecks or attrchecks:
+        f.write("        const ipfix_app_flow_t* flowentry = firstflow + counters->appindex;\n")
+        if attrtypes or attrchecks:
+            f.write("        const ipfix_attributes_t* attr;\n")
+        if flowtypes or flowchecks:
+            f.write("        const ipfix_app_tuple_t* aflow = &flowentry->app;\n")
+            f.write("        const ipfix_apps_ports_t* app = &((appsset + aflow->application)->ports);\n")
+        f.write("\n")
+        writedirection(f, 'INGRESS', 'in', ingress, flowtypes, attrtypes, flowchecks, attrchecks)
+        writedirection(f, 'EGRESS', 'out', egress, flowtypes, attrtypes, flowchecks, attrchecks)
+    else:
+        writebytespackets(f, "        ", 'in')
+        writebytespackets(f, "        ", 'out')
+
+    f.write("""
+        poses->countpos++;
+    }\n""")
+    writefunctail(f)    
+
+def writedirection(f, dname, d, appd, flowtypes, attrtypes, flowchecks, attrchecks):
+    if flowchecks:
+        f.write("            if((counters->%sbytes > 0) && "
+                "check_aflow_%s((ipfix_app_tuple_%s_t*)aflow, (ipfix_apps_ports_%s_t*)app))\n"%(d, dname.lower(), d, d))
+    f.write("            {\n")
+    if attrtypes or attrchecks:
+        f.write("                attr = &((firstattr + flowentry->%sattrindex)->attributes);\n"%(d))
+        if attrchecks:        
+            f.write("                if(check_flow_attr(attr))")
+    f.write("                {\n")
+    offset = "                    "
+    if flowtypes or attrtypes:
+        for ftp in flowtypes:
+            f.write("%svals.%s = %s;\n"%(offset, ftp.name, appd[ftp.name]))
+        for atp in attrtypes:
+            f.write("%svals.%s = attr->%s;\n"%(offset, atp.name, atp.name))
+        wlookupcall(f, offset)
+        f.write("\n")
+    writebytespackets(f, offset, d)
+    
+    f.write("                }\n")
+    f.write("            }\n")
+
+def writebytespackets(f, offset, pref):
+    f.write("%s{\n"%(offset))
+    f.write("%s    collect->bytes += counters->%sbytes;\n"%(offset, pref))
+    f.write("%s    collect->packets += counters->%spackets;\n"%(offset, pref))
+    f.write("%s    poses->totbytes += counters->%sbytes;\n"%(offset, pref))
+    f.write("%s    poses->totpackets += counters->%spackets;\n"%(offset, pref))
+    f.write("%s}\n"%(offset))
 
 def gentimesource(explns, explss, f, qid, css, lss, s):
     writehead(f, s)
@@ -164,6 +265,7 @@ def gentimesource(explns, explss, f, qid, css, lss, s):
     flowchecks, attrchecks = writecheckers(f, css, qid, explns)
     
     writefcheck(f, qid, colltypename, None, None, flowchecks, attrchecks, [stampname])
+    writeacheck(f, qid, colltypename, None, None, flowchecks, attrchecks, [stampname])
     
     def repcall(f):
         f.write('        {\n')
@@ -218,6 +320,7 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
     expnames = [etp.name for etp in exptypes]
 
     writefcheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames)
+    writeacheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchecks, expnames)
     
     tlst = []
     hasip = False
@@ -348,7 +451,7 @@ def valfield(fk, fv, pref, lss):
 def validate(fields, expcs = None, expls = None, expnm = ''):
     lss = set()
     css = {}
-    pref = 'entry->'
+    pref = ''
     for fk, fv in fields.items():
         cs = valfield(fk, fv, pref, lss)
         if cs: css[fk] = cs
@@ -381,25 +484,25 @@ def wfunchead(f, qid, fn, *args):
             f.write("%s, \n%s"%(a, off))
         f.write("%s){\n"%(args[-1]))
     
-def wcondition(f, lns):
+def wcondition(f, pref, lns):
     if len(lns) == 1:
         ln = lns[0]
         if ln:
-            f.write("    if (%s) { return 0; }\n"%(ln))
+            f.write("    if (%s%s) { return 0; }\n"%(pref, ln))
     elif len(lns) > 1:
         s = "    if ("
         f.write(s)
         for ln in lns[:-1]:
             if not ln: continue
-            f.write('(%s)'%(ln))
+            f.write('(%s%s)'%(pref, ln))
             f.write(' &&\n')
             f.write(' '*len(s))
-        f.write("(%s)) { return 0; }\n"%(lns[-1]))
+        f.write("(%s%s)) { return 0; }\n"%(pref, lns[-1]))
     
 def wcondgroup(f, cgroup):
     for fk in sorted(cgroup.keys()):
         lns = cgroup[fk]
-        wcondition(f, lns)
+        wcondition(f, 'entry->', lns)
     writecheckerend(f)
     
 def genrawsource(f, qid, css, lss, s):

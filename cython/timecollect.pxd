@@ -49,5 +49,7 @@ cdef class SecondsCollector(TimeCollector):
 cdef class MinutesCollector(TimeCollector):
     cdef uint32_t _prevsecpos
     cdef FlowQuery _query
+    cdef AppFlowCollector _appflows
+    cdef Apps _apps
 
     cdef int _onapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil

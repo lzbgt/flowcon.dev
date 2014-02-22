@@ -59,6 +59,11 @@ void fcheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info
     }
 }
 
+/* following are jut dummy functions to make loader happy */
+
+void acheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info, ipfix_query_pos_t* poses){
+}
+
 size_t freport_minutes(const ipfix_query_pos_t* totals,
 						int accending,
 						const void* buf,

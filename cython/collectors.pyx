@@ -14,6 +14,8 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
+from napps cimport Apps
+
 from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate
 
 def _dummy():
@@ -318,10 +320,11 @@ cdef class AttrCollector(Collector):
 
 cdef class AppFlowCollector(Collector):
 
-    def __init__(self, nm, attribs):
+    def __init__(self, nm, Apps apps, AttrCollector attribs):
         super(AppFlowCollector, self).__init__(nm, sizeof(ipfix_app_flow))
         cdef ipfix_app_flow flow
         
+        self._apps = apps
         self._attributes = attribs
         
         self.dtypes = [('next',     'u%d'%sizeof(flow.next)),

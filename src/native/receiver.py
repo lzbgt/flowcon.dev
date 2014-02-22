@@ -30,12 +30,14 @@ class Receiver(object):
         sock.setblocking(0)
         sock.bind((p.hostname, p.port))
         self._sock = sock
-
+        
         self._nreceiver = recmod.Receiver(self)
         self._queries = {}
+
+        self._apps = None
         
         ioloop.add_handler(sock.fileno(), self._recv, ioloop.READ)
-        
+       
     def _recv(self, fd, events):
         data, addr = self._sock.recvfrom(2048); addr
         self._nreceiver.receive(data, len(data))
@@ -43,13 +45,14 @@ class Receiver(object):
     def find(self, ip):
         src = self.allsources.get(ip, None)
         if src is None:
-            src = Sources(ip)
+            src = Sources(self._apps, ip)
             self.allsources[ip] = src
             if self._onsource: self._onsource(src)
 
         return src.getcollectors()
         
-    def sourcecallback(self, callback):
+    def sourcecallback(self, apps, callback):
+        self._apps = apps
         self._onsource = callback
         
     def sources(self):
@@ -72,8 +75,9 @@ class Receiver(object):
             
 class Sources(object):
 
-    def __init__(self, ip):
+    def __init__(self, apps, ip):
         self._ip = ip
+        self._apps = apps
         nm = ''
         for _ in range(4):
             nm = ('%d.'%(ip & 0xFF))+nm 
@@ -82,10 +86,10 @@ class Sources(object):
         self._name = nm[:-1]
         self._attrs = colmod.AttrCollector("A:"+self._name)
         self._flows = colmod.FlowCollector("F:"+self._name, self._attrs)
-        self._appflows = colmod.AppFlowCollector("C"+self._name, self._attrs)
+        self._appflows = colmod.AppFlowCollector("C"+self._name, apps._nativeapps, self._attrs)
         self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
         libname = os.path.join(native.libloc, 'minutescoll.so')
-        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, flowtools.settings.maxminutes, stamp)
+        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxminutes, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
@@ -102,10 +106,10 @@ class Sources(object):
     def stats(self):
         return {'address':self._ip}
 
-    def on_time(self, qbuf, apps, secs, mins, hours, days):
-        self._seconds.onsecond(apps._nativeapps, secs)
+    def on_time(self, qbuf, secs, mins, hours, days):
+        self._seconds.onsecond(self._apps._nativeapps, secs)
         if mins:
-            self._minutes.onminute(qbuf._native, apps._nativeapps, self._appflows, self._seconds, mins)
+            self._minutes.onminute(qbuf._native, self._apps._nativeapps, self._appflows, self._seconds, mins)
         
     @property
     def name(self):

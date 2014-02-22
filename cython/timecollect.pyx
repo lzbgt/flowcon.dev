@@ -336,6 +336,8 @@ cdef class SecondsCollector(TimeCollector):
     @cython.boundscheck(False)
     cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil:
         qinfo.flows = <ipfix_store_flow*>self._flows.entryset
+        qinfo.appflows = NULL
+        qinfo.apps = NULL
         qinfo.attrs = <ipfix_store_attributes*>self._flows._attributes.entryset
         
         qinfo.exporter = self._ip
@@ -356,11 +358,21 @@ cdef int onappcallback(void* obj, const ipfix_store_flow* flowentry, AppFlowValu
 
 cdef class MinutesCollector(TimeCollector):
  
-    def __init__(self, nm, uint32_t ip, libname, uint32_t minutesdepth, uint32_t stamp):
+    def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t minutesdepth, uint32_t stamp):
         super(MinutesCollector, self).__init__(nm, ip, sizeof(ipfix_app_counts), minutesdepth, stamp)        
 
+        self._appflows = appflows
         self._prevsecpos = INVALID
         self._query = FlowQuery(libname, 'minutes')
+        
+    @cython.boundscheck(False)
+    cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil:
+        qinfo.flows = NULL
+        qinfo.appflows = <ipfix_app_flow*>self._appflows.entryset
+        qinfo.apps = <ipfix_apps*>self._appflows._apps.entryset
+        qinfo.attrs = <ipfix_store_attributes*>self._appflows._attributes.entryset
+        
+        qinfo.exporter = self._ip
         
     @cython.boundscheck(False)
     def onminute(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
@@ -407,11 +419,7 @@ cdef class MinutesCollector(TimeCollector):
             minentry.outpackets = colentry.outpackets
 
         self.ontick(stamp)
-            
-        #TMP
-        print "collected %d entries"%(count)
-        #
-            
+
     @cython.boundscheck(False)
     cdef int _onapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil:
         cdef int ingress

@@ -27,8 +27,8 @@ cdef class Apps(Collector):
         self.dtypes = [('next',      'u%d'%sizeof(apps.next)),
                        ('crc',       'u%d'%sizeof(apps.crc)),
                        ('protocol',  'u%d'%sizeof(apps.ports.protocol)),
-                       ('p1',        'u%d'%sizeof(apps.ports.p1)),
-                       ('p2',        'u%d'%sizeof(apps.ports.p2))]                
+                       ('src',        'u%d'%sizeof(apps.ports.src)),
+                       ('dst',        'u%d'%sizeof(apps.ports.dst))]                
         
         cdef uint32_t size
         
@@ -77,40 +77,40 @@ cdef class Apps(Collector):
         if src == 0:
             self._zeroportcount += 1
             ingress[0] = 1
-            ports.p1 = 0
-            ports.p2 = dst
+            ports.src = 0
+            ports.dst = dst
         else:   
             srccnt = portcounts[src]
             dstcnt = portcounts[dst]
             
             if srccnt > dstcnt:
                 if srccnt >= self._minthreshold and srccnt >= dstcnt*rt:
-                    ports.p1 = 0    # ignore dst port
-                    ports.p2 = src
+                    ports.src = 0    # ignore dst port
+                    ports.dst = src
                     ingress[0] = 0
-                else:   # unknown application; sort the ports; consider smaller port as application   
+                else:   # unknown application; sort the ports; consider smaller port as an application   
                     if src > dst:
                         ingress[0] = 1
-                        ports.p1 = dst
-                        ports.p2 = src
+                        ports.src = src
+                        ports.dst = dst
                     else:
                         ingress[0] = 0
-                        ports.p1 = src
-                        ports.p2 = dst
+                        ports.src = dst
+                        ports.dst = src
             else:
                 if dstcnt >= self._minthreshold and srccnt*rt <= dstcnt:
-                    ports.p1 = 0    # ignore src port
-                    ports.p2 = dst
+                    ports.src = 0    # ignore src port
+                    ports.dst = dst
                     ingress[0] = 1
-                else:   # unknown application; sort the ports; consider smaller port as application   
+                else:   # unknown application; sort the ports; consider smaller port as an application   
                     if src > dst:
                         ingress[0] = 1
-                        ports.p1 = dst
-                        ports.p2 = src
+                        ports.src = src
+                        ports.dst = dst
                     else:
                         ingress[0] = 0
-                        ports.p1 = src
-                        ports.p2 = dst
+                        ports.src = dst
+                        ports.dst = src
         
         return self._add(cython.address(ports), 0, sizeof(ipfix_apps_ports))
 

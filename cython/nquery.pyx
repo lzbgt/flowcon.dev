@@ -20,7 +20,7 @@ cimport numpy as np
 
 from common cimport *
 from collectors cimport FlowCollector, AttrCollector
-from timecollect cimport SecondsCollector 
+from timecollect cimport SecondsCollector, MinutesCollector 
 from misc cimport logger 
 
 cdef uint32_t minbufsize = 256
@@ -35,21 +35,19 @@ cdef class Query(object):
         if self.mod is NULL:
             raise Exception("Can not load %s: '%s'"%(modname, dlerror()))
         dlerror() # clear existing error
+
+        self._flowchecker = self._loadsymbol(modname, <bytes>"fcheck_%s"%(qid))
+        self.reporter = self._loadsymbol(modname, <bytes>"freport_%s"%(qid))
         
-        cdef bytes checkername = <bytes>"fcheck_%s"%(qid)
-        self.checker = dlsym(self.mod, checkername)
-        err = dlerror()
-        if err != NULL:
-            raise Exception("Can not load symbol %s from %s: %s"%(checkername, modname, err))
+    @cython.boundscheck(False)
+    cdef void* _loadsymbol(self, const char* modname, bytes nm) except NULL:
+        cdef void* sym = dlsym(self.mod, nm)
+        cdef const char* err = dlerror()
 
-        cdef bytes reportername = <bytes>"freport_%s"%(qid)
-        self.reporter = dlsym(self.mod, reportername)
-        err = dlerror()
-        if err != NULL:
-            raise Exception("Can not load symbol %s from %s: %s"%(reportername, modname, err))
-
-        if self.checker is NULL or self.reporter is NULL:
-            raise Exception("Can not load function calls")
+        if err != NULL or sym == NULL:
+            raise Exception("Can not load symbol %s from %s: %s"%(nm, modname, err))
+        
+        return sym
         
     def __dealloc__(self):
         if not (self.mod is NULL):
@@ -72,7 +70,7 @@ cdef class RawQuery(Query):
         
     @cython.boundscheck(False)
     cdef void onflow(self, const ipfix_flow* flow):
-        if (<fcheckrawtype>self.checker)(flow) == 0: return
+        if (<fcheckrawtype>self._flowchecker)(flow) == 0: return
         cdef char buffer[512]
         (<freprawtype>self.reporter)(flow, buffer, sizeof(buffer))
         self.callback(buffer)
@@ -83,7 +81,7 @@ cdef class RawQuery(Query):
         cdef char buffer[512]
         
         flow.exporter = val
-        if (<fcheckrawtype>self.checker)(cython.address(flow)) == 1:
+        if (<fcheckrawtype>self._flowchecker)(cython.address(flow)) == 1:
             (<freprawtype>self.reporter)(cython.address(flow), buffer, sizeof(buffer))
             print "result: '%s'"%(buffer)
         else:
@@ -105,7 +103,7 @@ cdef class QueryBuffer(object):
         self._extradata = <char*>arr.data
 
     @cython.boundscheck(False)
-    cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t offset, uint32_t sizehint):
+    cdef const ipfix_query_buf* init(self, uint32_t width, uint32_t offset, uint32_t sizehint) except NULL:
         cdef uint32_t size = self._entries.size
         self._width = width
         self._offset = offset
@@ -255,27 +253,22 @@ cdef class FlowQuery(Query):
 
     def __init__(self, const char* modname, const char* qid):
         super(FlowQuery, self).__init__(modname, qid)
-        cdef bytes expname = <bytes>"fexporter_%s"%(qid)
-        self.expchecker = <fexpchecktype>dlsym(self.mod, expname)
-        err = dlerror()
-        if err != NULL:
-            raise Exception("Can not load symbol %s from %s: %s"%(expname, modname, err))        
         
-        if self.expchecker is NULL:
-            raise Exception("Can not load source checker function call")
+        self.expchecker = <fexpchecktype>self._loadsymbol(modname, <bytes>"fexporter_%s"%(qid))
         
-        self._width = self._getvalue('width', qid)
-        self._offset = self._getvalue('offset', qid)
+        self._width = self._getvalue(modname, 'width', qid)
+        self._offset = self._getvalue(modname, 'offset', qid)
         
         self._sizehint = minbufsize
         
-    cdef uint32_t _getvalue(self, const char* nm, const char* qid):
-        cdef bytes widthname = <bytes>("f%s_%s"%(nm, qid))
-        cdef uint32_t* wptr = <uint32_t*>dlsym(self.mod, widthname)
-        
-        if wptr is NULL:
-            raise Exception("Can not load %s value"%(nm))
+        self._appchecker = self._loadsymbol(modname, <bytes>"acheck_%s"%(qid))
 
+        self._checker = NULL
+
+    @cython.boundscheck(False)
+    cdef uint32_t _getvalue(self, const char* modname, const char* nm, const char* qid) except 0:
+        cdef uint32_t* wptr = <uint32_t*>self._loadsymbol(modname, <bytes>("f%s_%s"%(nm, qid)))
+        
         cdef uint32_t val = cython.operator.dereference(wptr)
         if val == 0 or val > 1000:
             raise Exception("Unexpected %s for query results: %d"%(nm, val))
@@ -295,16 +288,19 @@ cdef class FlowQuery(Query):
     def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
         cdef SecondsCollector sec
         
+        self._checker = self._flowchecker
+        
         for sec in secset:
             sec.collect(self, qbuf, newstamp, oldstamp, step)
             
     @cython.boundscheck(False)
     def runminutes(self, QueryBuffer qbuf, minset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
-        pass
-#        cdef SecondsCollector sec
-#        
-#        for sec in secset:
-#            sec.collect(self, qbuf, newstamp, oldstamp, step)
+        cdef MinutesCollector mint
+        
+        self._checker = self._appchecker
+        
+        for mint in minset:
+            mint.collect(self, qbuf, newstamp, oldstamp, step)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
@@ -345,7 +341,7 @@ cdef class FlowQuery(Query):
 #                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
 #                sys.stdout.flush()
             
-            (<ipfix_collector_call_t>self.checker)(buf, info, poses)
+            (<ipfix_collector_call_t>self._checker)(buf, info, poses)
             #TMP
 #            with gil:
 #                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
