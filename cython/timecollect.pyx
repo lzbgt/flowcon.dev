@@ -433,7 +433,7 @@ cdef class LongCollector(TimeCollector):
 cdef class MinutesCollector(LongCollector):
  
     def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t minutesdepth, uint32_t stamp):
-        super(MinutesCollector, self).__init__(nm, ip, 'minutes', appflows, minutesdepth, stamp)        
+        super(MinutesCollector, self).__init__(nm, ip, libname, 'minutes', appflows, minutesdepth, stamp)        
         
     @cython.boundscheck(False)
     def onminute(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
@@ -469,7 +469,7 @@ cdef class MinutesCollector(LongCollector):
 
 cdef class HoursCollector(LongCollector):
     def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t hoursdepth, uint32_t stamp):
-        super(HoursCollector, self).__init__(nm, ip, 'hours', appflows, hoursdepth, stamp)
+        super(HoursCollector, self).__init__(nm, ip, libname, 'hours', appflows, hoursdepth, stamp)
 
     @cython.boundscheck(False)
     def onhour(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, MinutesCollector mincoll, uint64_t stamp):
@@ -485,7 +485,7 @@ cdef class HoursCollector(LongCollector):
 
 cdef class DaysCollector(LongCollector):
     def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t daysdepth, uint32_t stamp):
-        super(DaysCollector, self).__init__(nm, ip, 'days', appflows, daysdepth, stamp)
+        super(DaysCollector, self).__init__(nm, ip, libname, 'days', appflows, daysdepth, stamp)
         
     @cython.boundscheck(False)
     def onday(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, HoursCollector hourcoll, uint64_t stamp):
