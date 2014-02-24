@@ -20,7 +20,7 @@ cimport numpy as np
 
 from common cimport *
 from collectors cimport FlowCollector, AttrCollector
-from timecollect cimport SecondsCollector, MinutesCollector 
+from timecollect cimport SecondsCollector, MinutesCollector, HoursCollector, DaysCollector
 from misc cimport logger 
 
 cdef uint32_t minbufsize = 256
@@ -301,6 +301,24 @@ cdef class FlowQuery(Query):
         
         for mint in minset:
             mint.collect(self, qbuf, newstamp, oldstamp, step)
+            
+    @cython.boundscheck(False)
+    def runhours(self, QueryBuffer qbuf, hourset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
+        cdef HoursCollector hour
+        
+        self._checker = self._appchecker
+        
+        for hour in hourset:
+            hour.collect(self, qbuf, newstamp, oldstamp, step)
+
+    @cython.boundscheck(False)
+    def rundays(self, QueryBuffer qbuf, dayset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
+        cdef DaysCollector day
+        
+        self._checker = self._appchecker
+        
+        for day in dayset:
+            day.collect(self, qbuf, newstamp, oldstamp, step)
 
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):

@@ -130,11 +130,19 @@ class Query(object):
 
         dayset = self._schedule.get('days', None)
         if dayset:
-            pass
+            days = []
+            for src in sources:
+                days.append(src.getminutes())
+            newest, oldest = dayset
+            self._native.rundays(qbuf._native, days, newest, oldest, step)
         
         hourset = self._schedule.get('hours', None)
         if hourset:
-            pass
+            hours = []
+            for src in sources:
+                hours.append(src.getminutes())
+            newest, oldest = hourset
+            self._native.runhours(qbuf._native, hours, newest, oldest, step)
         
         minset = self._schedule.get('minutes', None)
         if minset:

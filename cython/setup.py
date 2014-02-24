@@ -19,9 +19,15 @@ from Cython.Distutils import build_ext
 ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", 'timecollect.pyx', 
                          "nquery.pyx", "napps.pyx"])
 
-ext_modules.append(Extension('minutescoll',
+ext_modules.extend([Extension('minutescoll',
                              sources=['../csrc/minutescoll.c'], 
-                             include_dirs=['../includes']))
+                             include_dirs=['../includes']),
+                    Extension('hourscoll',
+                             sources=['../csrc/hourscoll.c'], 
+                             include_dirs=['../includes']),
+                    Extension('dayscoll',
+                             sources=['../csrc/dayscoll.c'], 
+                             include_dirs=['../includes'])])
 
 res = setup(ext_modules = ext_modules,
             #cmdclass = {'build_ext': cpp_build_ext},

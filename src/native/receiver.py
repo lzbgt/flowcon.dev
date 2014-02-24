@@ -90,6 +90,10 @@ class Sources(object):
         self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
         libname = os.path.join(native.libloc, 'minutescoll.so')
         self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxminutes, stamp)
+        libname = os.path.join(native.libloc, 'hourscoll.so')
+        self._hours = timecolmod.HoursCollector("H:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxhours, stamp)
+        libname = os.path.join(native.libloc, 'dayscoll.so')
+        self._days = timecolmod.DaysCollector("D:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxdays, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
@@ -98,7 +102,13 @@ class Sources(object):
         return self._seconds
     
     def getminutes(self):
-        return self._minutes    
+        return self._minutes
+    
+    def gethours(self):
+        return self._hours
+        
+    def getdays(self):
+        return self._days
         
     def address(self):
         return self.name
@@ -110,6 +120,10 @@ class Sources(object):
         self._seconds.onsecond(self._apps._nativeapps, secs)
         if mins:
             self._minutes.onminute(qbuf._native, self._apps._nativeapps, self._appflows, self._seconds, mins)
+            if hours:
+                self._hours.onhour(qbuf._native, self._apps._nativeapps, self._appflows,  self._minutes, hours)
+                if days:
+                    self._days.onday(qbuf._native, self._apps._nativeapps, self._appflows,  self._hours, days)
         
     @property
     def name(self):

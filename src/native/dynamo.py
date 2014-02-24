@@ -178,6 +178,17 @@ def writeacheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchec
      'srcport':'app->dst'
     }
     
+    if flowchecks:
+        needapps = True
+    elif flowtypes:
+        needapps = False
+        for ftp in flowtypes:
+            if not ftp.name.endswith('addr'):
+                needapps = True
+                break
+    else:
+        needapps = False
+    
     wfunchead(f, qid, 'void acheck', "const ipfix_query_buf_t* buf",
                                      "const ipfix_query_info_t* info",
                                      "ipfix_query_pos_t* poses")
@@ -185,7 +196,8 @@ def writeacheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchec
     f.write("    const ipfix_app_counts_t* firstcount = (ipfix_app_counts_t*)info->entries;\n")
     if flowtypes or attrtypes or flowchecks or attrchecks:
         f.write("    const ipfix_app_flow_t* firstflow = info->appflows;\n")
-        f.write("    const ipfix_apps_t* appsset = (ipfix_apps_t*)info->apps;\n")
+        if needapps:
+            f.write("    const ipfix_apps_t* appsset = (ipfix_apps_t*)info->apps;\n")
         if attrtypes or attrchecks:
             f.write("    const ipfix_store_attributes_t* firstattr = info->attrs;\n")
     f.write("\n")
@@ -204,7 +216,8 @@ def writeacheck(f, qid, colltypename, flowtypes, attrtypes, flowchecks, attrchec
             f.write("        const ipfix_attributes_t* attr;\n")
         if flowtypes or flowchecks:
             f.write("        const ipfix_app_tuple_t* aflow = &flowentry->app;\n")
-            f.write("        const ipfix_apps_ports_t* app = &((appsset + aflow->application)->ports);\n")
+            if needapps:
+                f.write("        const ipfix_apps_ports_t* app = &((appsset + aflow->application)->ports);\n")
         f.write("\n")
         writedirection(f, 'INGRESS', 'in', ingress, flowtypes, attrtypes, flowchecks, attrchecks)
         writedirection(f, 'EGRESS', 'out', egress, flowtypes, attrtypes, flowchecks, attrchecks)

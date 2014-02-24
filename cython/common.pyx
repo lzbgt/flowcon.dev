@@ -103,7 +103,7 @@ cdef extern from "ipfix.h":
         long    crc
         long    pos
         
-    ctypedef int (*FlowAppCallback)(void* obj, const ipfix_store_flow* flow, AppFlowValues* vals) nogil
+    ctypedef int (*FlowAppCallback)(void* obj, const void* flow, AppFlowValues* vals) nogil
         
     cdef struct ipfix_app_flow:
         long                next
@@ -148,7 +148,7 @@ cdef extern from "ipfix.h":
         long    totpackets
                 
     cdef struct AppFlowObjects:
-        void*   minutes
+        void*   ticks
         void*   apps
         void*   flows
 

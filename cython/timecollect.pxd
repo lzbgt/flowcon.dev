@@ -46,10 +46,26 @@ cdef class SecondsCollector(TimeCollector):
     cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil
 
 
-cdef class MinutesCollector(TimeCollector):
-    cdef uint32_t _prevsecpos
+cdef class LongCollector(TimeCollector):
+    cdef uint32_t _prevtickpos
     cdef FlowQuery _query
     cdef AppFlowCollector _appflows
     cdef Apps _apps
+    
+    cdef void _onlongtick(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, 
+                          TimeCollector timecoll, uint64_t stamp, FlowAppCallback callback)
 
-    cdef int _onapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil
+
+cdef class MinutesCollector(LongCollector):
+
+    cdef int _onminapp(self, Apps apps, AppFlowCollector flows, 
+                       const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil
+    
+
+cdef class HoursCollector(LongCollector):
+
+    cdef int _onhoursapp(self, AppFlowCollector flows, const ipfix_app_flow* flowentry, AppFlowValues* vals) nogil
+    
+cdef class DaysCollector(LongCollector):
+    pass
+
