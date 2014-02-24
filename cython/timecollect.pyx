@@ -384,6 +384,10 @@ cdef class LongCollector(TimeCollector):
                           TimeCollector timecoll, uint64_t stamp, FlowAppCallback callback):
         cdef uint32_t appidx, curpos, count, pos
 
+        #TMP
+        print "%s: %d"%(self._name, stamp)
+        #
+
         curpos = timecoll.currentpos()
         
         if self._prevtickpos == INVALID:
