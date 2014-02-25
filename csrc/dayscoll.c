@@ -52,20 +52,3 @@ void fcheck_days(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info, i
         poses->countpos++;
     }
 }
-
-/* following are jut dummy functions to make loader happy */
-
-void acheck_days(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info, ipfix_query_pos_t* poses){
-}
-
-size_t freport_days(const ipfix_query_pos_t* totals,
-						int accending,
-						const void* buf,
-						uint32_t count,
-						char* out,
-						size_t maxsize,
-						rep_callback_t callback,
-						void* obj){
-	return 0;
-}
-

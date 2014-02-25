@@ -37,7 +37,6 @@ cdef class Query(object):
         dlerror() # clear existing error
 
         self._flowchecker = self._loadsymbol(modname, <bytes>"fcheck_%s"%(qid))
-        self.reporter = self._loadsymbol(modname, <bytes>"freport_%s"%(qid))
         
     @cython.boundscheck(False)
     cdef void* _loadsymbol(self, const char* modname, bytes nm) except NULL:
@@ -63,6 +62,7 @@ cdef class RawQuery(Query):
         self.next = None
         self.prev = None
         self.callback = None
+        self._rawrep = self._loadsymbol(modname, <bytes>"freport_%s"%(qid))        
     
     @cython.boundscheck(False)
     def setcallback(self, onmsg):
@@ -72,7 +72,7 @@ cdef class RawQuery(Query):
     cdef void onflow(self, const ipfix_flow* flow):
         if (<fcheckrawtype>self._flowchecker)(flow) == 0: return
         cdef char buffer[512]
-        (<freprawtype>self.reporter)(flow, buffer, sizeof(buffer))
+        (<freprawtype>self._rawrep)(flow, buffer, sizeof(buffer))
         self.callback(buffer)
         
     @cython.boundscheck(False)
@@ -82,7 +82,7 @@ cdef class RawQuery(Query):
         
         flow.exporter = val
         if (<fcheckrawtype>self._flowchecker)(cython.address(flow)) == 1:
-            (<freprawtype>self.reporter)(cython.address(flow), buffer, sizeof(buffer))
+            (<freprawtype>self._rawrep)(cython.address(flow), buffer, sizeof(buffer))
             print "result: '%s'"%(buffer)
         else:
             print "none"
@@ -261,8 +261,6 @@ cdef class FlowQuery(Query):
         
         self._sizehint = minbufsize
         
-        self._appchecker = self._loadsymbol(modname, <bytes>"acheck_%s"%(qid))
-
         self._checker = NULL
 
     @cython.boundscheck(False)
@@ -284,6 +282,54 @@ cdef class FlowQuery(Query):
     def initbuf(self, QueryBuffer qbuf):
         qbuf.init(self._width, self._offset, self._sizehint)
 
+    @cython.boundscheck(False)
+    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info) nogil:
+        cdef ipfix_query_pos* poses = bufinfo.getposes()
+        cdef const ipfix_query_buf* buf = bufinfo.getbuf()
+            
+        poses.countpos = 0    # reset to start from first flow in info
+
+        while True:
+            #TMP
+#            with gil:
+#                import sys
+#                print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
+#                print "qinfo: count:%d checker: 0x%08x"%(info.count, <uint64_t>self._checker)
+#                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
+#                sys.stdout.flush()
+            #
+            
+            (<ipfix_collector_call_t>self._checker)(buf, info, poses)
+            #TMP
+#            with gil:
+#                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
+#                sys.stdout.flush()
+            #
+            
+            if poses.countpos >= info.count: return # checker ran through all entries
+
+
+            with gil:        
+                # not all entries are collected yet
+                if poses.bufpos < buf.count: # some unknown error
+                    raise Exception("bufpos %d < total %d"%(poses.bufpos, buf.count))
+                # run out of space ; need to grow
+                bufinfo.grow()
+                
+cdef class SimpleQuery(FlowQuery):
+
+    def __init__(self, const char* modname, const char* qid):
+        super(SimpleQuery, self).__init__(modname, qid)
+        
+        self._checker = self._flowchecker
+                
+cdef class ComplexQuery(FlowQuery):
+
+    def __init__(self, const char* modname, const char* qid):
+        super(ComplexQuery, self).__init__(modname, qid)
+        self._reporter = self._loadsymbol(modname, <bytes>"freport_%s"%(qid))
+        self._appchecker = self._loadsymbol(modname, <bytes>"acheck_%s"%(qid))
+                
     @cython.boundscheck(False)
     def runseconds(self, QueryBuffer qbuf, secset, uint64_t newstamp, uint64_t oldstamp, uint32_t step):
         cdef SecondsCollector sec
@@ -319,7 +365,7 @@ cdef class FlowQuery(Query):
         
         for day in dayset:
             day.collect(self, qbuf, newstamp, oldstamp, step)
-
+                
     @cython.boundscheck(False)
     def report(self, QueryBuffer qbuf, field, dir, uint32_t count):
         cdef const ipfix_query_buf* buf = qbuf.getbuf()
@@ -339,42 +385,10 @@ cdef class FlowQuery(Query):
         else:
             slice = 0
 
-        cdef bytes result = qbuf.onreport(buf, <ipfix_collector_report_t>self.reporter, fld, slice)
+        cdef bytes result = qbuf.onreport(buf, <ipfix_collector_report_t>self._reporter, fld, slice)
 
         return result
 
-    @cython.boundscheck(False)
-    cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info) nogil:
-        cdef ipfix_query_pos* poses = bufinfo.getposes()
-        cdef const ipfix_query_buf* buf = bufinfo.getbuf()
-            
-        poses.countpos = 0    # reset to start from first flow in info
-
-        while True:
-            #TMP
-#            with gil:
-#                import sys
-#                print "data: 0x%08x count: %d 0x%08x 0x%08x"%(<uint64_t>buf.data, buf.count, <uint64_t>buf.poses, buf.mask)
-#                print "qinfo: count:%d"%(info.count)
-#                print "poses before: %d, %d"%(poses.bufpos, poses.countpos)
-#                sys.stdout.flush()
-            
-            (<ipfix_collector_call_t>self._checker)(buf, info, poses)
-            #TMP
-#            with gil:
-#                print "poses after: %d, %d"%(poses.bufpos, poses.countpos)
-#                sys.stdout.flush()
-            
-            if poses.countpos >= info.count: return # checker ran through all entries
-
-
-            with gil:        
-                # not all entries are collected yet
-                if poses.bufpos < buf.count: # some unknown error
-                    raise Exception("bufpos %d < total %d"%(poses.bufpos, buf.count))
-                # run out of space ; need to grow
-                bufinfo.grow()
-                
 #===================================================
 
 def _dummy():

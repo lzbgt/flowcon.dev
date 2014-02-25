@@ -1,7 +1,7 @@
 
 from common cimport *
 from collectors cimport FlowCollector, AppFlowCollector
-from nquery cimport FlowQuery, QueryBuffer
+from nquery cimport FlowQuery, SimpleQuery, QueryBuffer
 from napps cimport Apps
 
 cdef class TimeCollector(object):
@@ -48,7 +48,7 @@ cdef class SecondsCollector(TimeCollector):
 
 cdef class LongCollector(TimeCollector):
     cdef uint32_t _prevtickpos
-    cdef FlowQuery _query
+    cdef SimpleQuery _query
     cdef AppFlowCollector _appflows
     cdef Apps _apps
     

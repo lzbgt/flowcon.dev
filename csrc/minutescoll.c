@@ -35,11 +35,16 @@ void fcheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info
     const ipfix_store_counts_t* firstcount = (ipfix_store_counts_t*)info->entries;
     const ipfix_store_flow_t* firstflow = info->flows;
 
+    printf("checking minutes\n");
+    fflush(stdout);
+
     while(poses->countpos < info->count){
         const ipfix_store_counts_t* counters = firstcount+poses->countpos;
         const ipfix_store_flow_t* flowentry = firstflow + counters->flowindex;
 
         {
+        	printf("before callback\n");
+        	fflush(stdout);
         	ingress = callback(callobj, flowentry, &vals);
 
             collect = lookup(buf, &vals, poses);
@@ -58,20 +63,3 @@ void fcheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info
         poses->countpos++;
     }
 }
-
-/* following are jut dummy functions to make loader happy */
-
-void acheck_minutes(const ipfix_query_buf_t* buf, const ipfix_query_info_t* info, ipfix_query_pos_t* poses){
-}
-
-size_t freport_minutes(const ipfix_query_pos_t* totals,
-						int accending,
-						const void* buf,
-						uint32_t count,
-						char* out,
-						size_t maxsize,
-						rep_callback_t callback,
-						void* obj){
-	return 0;
-}
-

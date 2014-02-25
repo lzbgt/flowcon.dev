@@ -250,7 +250,7 @@ cdef class TimeCollector(object):
         oldestloc = self._ticks[oldestpos]
 
         # here we have secpos pointing to proper position where we need to start collection
-
+        
         if lastloc >= oldestloc:  # one chunk of data
             qinfo.entries = <void*>((<char*>self._counterset)+oldestloc*sz)
             qinfo.count = lastloc-oldestloc
@@ -368,7 +368,7 @@ cdef class LongCollector(TimeCollector):
 
         self._appflows = appflows
         self._prevtickpos = INVALID
-        self._query = FlowQuery(libname, callname)
+        self._query = SimpleQuery(libname, callname)
 
     @cython.boundscheck(False)
     cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil:
@@ -410,7 +410,7 @@ cdef class LongCollector(TimeCollector):
         qinfo.callobj = cython.address(objects)
         
         timecoll._collect(self._query, qbuf, cython.address(qinfo), self._prevtickpos, curpos)
-
+        
         self._prevtickpos = curpos
         
         cdef AppsCollection* acollection = <AppsCollection*>qbuf.release(cython.address(count))
@@ -429,6 +429,7 @@ cdef class LongCollector(TimeCollector):
             tickentry.outpackets = colentry.outpackets
 
         self.ontick(stamp)
+
 
 cdef class MinutesCollector(LongCollector):
  

@@ -42,10 +42,10 @@ def genraw(fields):
     return dynbuilder.build(vres, genrawsource, qmod.RawQuery, 'R')
 
 def genflow(fields):
-    return gentimeflow(fields, genflowsource, qmod.FlowQuery, 'F')
+    return gentimeflow(fields, genflowsource, qmod.ComplexQuery, 'F')
 
 def gentime(fields):
-    return gentimeflow(fields, gentimesource, qmod.FlowQuery, 'T')
+    return gentimeflow(fields, gentimesource, qmod.ComplexQuery, 'T')
     
 def gentimeflow(fields, gencall, gencls, gennm):
     expnm = '130'

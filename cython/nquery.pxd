@@ -9,7 +9,6 @@ cdef class Query(object):
 	cdef bytes qid
 	cdef void* mod
 	cdef void* _flowchecker
-	cdef void* reporter
 	
 	cdef void* _loadsymbol(self, const char* modname, bytes nm) except NULL
 	
@@ -17,6 +16,7 @@ cdef class RawQuery(Query):
 	cdef RawQuery next
 	cdef RawQuery prev
 	cdef callback
+	cdef void* _rawrep
 	
 	cdef void onflow(self, const ipfix_flow* flow)
 
@@ -49,3 +49,10 @@ cdef class FlowQuery(Query):
 	
 	cdef void collect(self, QueryBuffer bufinfo, const ipfix_query_info* info) nogil
 	cdef uint32_t _getvalue(self, const char* modname, const char* nm, const char* qid)
+
+	
+cdef class SimpleQuery(FlowQuery):
+	pass
+	
+cdef class ComplexQuery(FlowQuery):
+	cdef void* _reporter
