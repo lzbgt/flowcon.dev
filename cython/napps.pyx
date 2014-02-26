@@ -115,6 +115,11 @@ cdef class Apps(Collector):
         return self._add(cython.address(ports), 0, sizeof(ipfix_apps_ports))
 
     @cython.boundscheck(False)
+    cdef void reduce(self) nogil:
+        pass
+        #self._removepos(<ipfix_store_entry*>flow, index, sz) # delete entry
+
+    @cython.boundscheck(False)
     cdef void remove(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef uint32_t pos, index
         cdef const ipfix_flow_tuple* flow
@@ -127,26 +132,29 @@ cdef class Apps(Collector):
             portcounts[flow.dstport] -= 1
             self._totalcount -= 2
 
-    def report(self):
-        cdef uint32_t* portcounts = self._portcounts
-        cdef uint32_t pos, size = self._pcobj.size
+    def status(self):
+#        cdef uint32_t* portcounts = self._portcounts
+#        cdef uint32_t pos, size = self._pcobj.size
         
-        cdef ports = {}
-        
-        for pos in range(size):
-            if portcounts[pos] == 0: continue
-            ports[pos] = portcounts[pos]
+#        cdef ports = {}
+#        
+#        for pos in range(size):
+#            if portcounts[pos] == 0: continue
+#            ports[pos] = portcounts[pos]
             
-        cdef apps = []
-        cdef appset = self.entries()
+#        cdef apps = []
+#        cdef appset = self.entries()
         
-        cdef int p1idx = appset.dtype.names.index('p1')
-        cdef int p2idx = appset.dtype.names.index('p2')
+#        cdef int p1idx = appset.dtype.names.index('p1')
+#        cdef int p2idx = appset.dtype.names.index('p2')
+#        
+#        for app in appset[1:self.end,0]:
+#            apps.append((int(app[p1idx]), int(app[p2idx])))
         
-        for app in appset[1:self.end,0]:
-            apps.append((int(app[p1idx]), int(app[p2idx])))
+        cdef baserep = super(Apps, self).status()
         
-        res = {'ports':{'counts':ports, 'total':self._totalcount},
-                'apps':{'ports':apps, 'total':self.end-1, 'zeros':self._zeroportcount}}
+        res = {'ports':{'bytes':int(self._pcobj.nbytes), 'total':int(self._totalcount), 
+                        'settings':{'rate':float(self._portrate), 'thres':int(self._minthreshold)}},
+                'apps':{'collector':baserep, 'zeros':int(self._zeroportcount)}}
 
         return res

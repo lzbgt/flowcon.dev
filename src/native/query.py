@@ -173,6 +173,9 @@ class QueryBuffer(object):
     def __init__(self):
         self._native = native.dynamo.qmod.QueryBuffer()
         
+    def status(self):
+        return self._native.status()
+        
 class RawQuery(Query):
     def __init__(self, qry, fields):
         super(RawQuery, self).__init__(qry, fields)

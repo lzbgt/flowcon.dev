@@ -198,6 +198,16 @@ cdef class Collector(object):
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil:
         pass
     
+    def status(self):
+        return {'entries':{'mask':('0x%08x'%(self.mask)), 
+                           'maxentries':int(self.maxentries),
+                           'bytes':int(self._entries.nbytes),
+                           'count':int(self.end-1-self.freecount),
+                           'free':int(self.freecount)}, 
+                'indices':{'bytes':int(self._indices.nbytes),
+                           'size':len(self._indices)}}
+
+    
 cdef class FlowCollector(Collector):
 
     def __init__(self, nm, attribs):
@@ -304,6 +314,7 @@ cdef class FlowCollector(Collector):
             if newsize < minsize: return
             self._resize(newsize)
         
+
 cdef class AttrCollector(Collector):
 
     def __init__(self, nm):

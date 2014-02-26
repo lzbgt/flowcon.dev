@@ -3,6 +3,8 @@
 # distutils: libraries = z
 
 import numpy as np
+import datetime
+import dateutil.tz
 cimport cython
 cimport numpy as np
 
@@ -13,6 +15,7 @@ from misc cimport logger, minsize, growthrate, shrinkrate
 from napps cimport Apps
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
+cdef tzutc = dateutil.tz.tzutc()
 
 cdef class TimeCollector(object):
 
@@ -291,6 +294,28 @@ cdef class TimeCollector(object):
         
     cdef void _rmold(self, const void* start, uint32_t count) nogil:
         pass
+    
+    def _stamptostr(self, uint32_t pos):
+        cdef d
+        try:
+            d = datetime.datetime.utcfromtimestamp(self._stamps[pos]).replace(tzinfo=tzutc)
+        except Exception, e:
+            print "got an exception in _stamptostr(%d):"%(pos),str(e)
+            return 'unknown'
+        
+        return str(d)
+
+    def status(self):
+        cdef uint32_t sz = self._width
+        cdef d = datetime.datetime.utcfromtimestamp(self._stamps[self._currenttick]).replace(tzinfo=tzutc)
+        return {'entries':{'size':len(self._counters),
+                           'bytes':int(self._counters.nbytes),
+                           'count':int(self._count),
+                           'first':int((((<uint64_t>self._first) - (<uint64_t>self._counterset))/sz)),
+                           'last':int((((<uint64_t>self._last) - (<uint64_t>self._counterset))/sz))},
+                'ticks':{'size':int(self._depth),
+                         'position':int(self._currenttick),
+                         'stamp':self._stamptostr(self._currenttick)}}
                 
 
 cdef class SecondsCollector(TimeCollector):
@@ -429,6 +454,19 @@ cdef class LongCollector(TimeCollector):
             tickentry.outpackets = colentry.outpackets
 
         self.ontick(stamp)
+
+    def status(self, TimeCollector prevcoll):
+        cdef prev
+        cdef d
+        
+        if self._prevtickpos == INVALID:
+            prev = ""
+        else:
+            prev = prevcoll._stamptostr(self._prevtickpos)
+        res = super(LongCollector, self).status()
+        res['ticks']['prevpos'] = int(self._prevtickpos)
+        res['ticks']['prevstamp'] = prev
+        return res
 
 
 cdef class MinutesCollector(LongCollector):

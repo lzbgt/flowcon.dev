@@ -114,7 +114,14 @@ class Sources(object):
         return self.name
     
     def stats(self):
-        return {'address':self._ip}
+        return {'address':self._name,
+                'flows':{'raw':self._flows.status(), 
+                         'attributes':self._attrs.status(),
+                         'apps':self._appflows.status()},
+                'time':{'seconds':self._seconds.status(),
+                        'minutes':self._minutes.status(self._seconds),
+                        'hours':self._hours.status(self._minutes),
+                        'days':self._days.status(self._hours)}}
 
     def on_time(self, qbuf, secs, mins, hours, days):
         self._seconds.onsecond(self._apps._nativeapps, secs)
@@ -138,5 +145,5 @@ class Apps(object):
     def __init__(self):
         self._nativeapps = appsmod.Apps(flowtools.settings.portrate, flowtools.settings.minthreshold)
 
-    def report(self):
-        return self._nativeapps.report()
+    def status(self):
+        return self._nativeapps.status()

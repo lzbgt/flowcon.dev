@@ -13,3 +13,4 @@ cdef class Apps(Collector):
 	cdef uint32_t getflowapp(self, const ipfix_flow_tuple* flow, int* ingress) nogil
 	cdef void collect(self, const ipfix_store_flow* flows, const ipfix_store_counts* start, uint32_t count) nogil
 	cdef void remove(self, const ipfix_store_flow* flows, const ipfix_store_counts* start, uint32_t count) nogil
+	cdef void reduce(self) nogil

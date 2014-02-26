@@ -239,11 +239,13 @@ cdef class QueryBuffer(object):
         self._buf.count = size/self._width
         
     def status(self):
-        return {"entrybuf":self._entries.size,
-                "extrabuf":self._extras.size,
-                "counts":{"collected":self._positions.bufpos-1,
-                          "bytes":self._positions.totbytes,
-                          "packets":self._positions.totpackets}}
+        return {"entries":{'size':len(self._entries),
+                           'bytes':int(self._entries.nbytes)},
+                "extras":{'size':len(self._extras),
+                          'bytes':int(self._extras.nbytes)},
+                "counts":{"collected":int(self._positions.bufpos-1),
+                          "bytes":int(self._positions.totbytes),
+                          "packets":int(self._positions.totpackets)}}
         
 cdef char* repcallback(void* data, size_t* size_p):
     cdef QueryBuffer qbuf = <QueryBuffer>data

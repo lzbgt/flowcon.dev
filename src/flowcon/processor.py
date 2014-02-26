@@ -5,6 +5,7 @@ Created on Nov 25, 2013
 '''
 
 import zmq, datetime, pprint
+import dateutil.tz
 
 from zmq.eventloop import ioloop
 ioloop.install()
@@ -12,6 +13,8 @@ ioloop.install()
 import connector, flowtools.logger as logger , flowtools.settings, native.query as querymod
 #import numpyfy.source as querymod
 import native.receiver
+
+tzutc = dateutil.tz.tzutc()
 
 class HUnit(object):
     
@@ -117,7 +120,11 @@ class FlowProc(connector.Connection):
 #            fields[s.address()] = sorted([int(f) for f in s.fields()])
             stats.append(s.stats())
 #        res = {'fields':fields, 'stats':stats, 'apps':self._apps.report()}
-        res = {'stats':stats, 'apps':self._apps.report()}
+        d = datetime.datetime.utcnow().replace(tzinfo=tzutc)
+        res = {'now':str(d),
+               'stats':stats, 
+               'apps':self._apps.status(),
+               'querybuf':self._nbuf.status()}
         self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
              
     def on_time(self):
