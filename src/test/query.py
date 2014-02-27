@@ -21,6 +21,7 @@ def main():
                         default=Query.heartbeat, type=int)
     parser.add_argument('--oldest', help='ignore any records older than this in seconds from now', type=int)
     parser.add_argument('--newest', help='ignore any records newer than this in seconds from now', type=int)
+    parser.add_argument('--step', help='time step in seconds', type=int)
     
     args = parser.parse_args()
     
@@ -62,7 +63,7 @@ def main():
             print "don't know how to sort with '%s'; --sortby is not provided"%(args.method)
             return
         if args.oldest or args.newest:
-            tm = (args.oldest, args.newest)
+            tm = (args.oldest, args.newest, args.step if args.step else None)
         else:
             tm = None
         if args.period:
@@ -152,6 +153,7 @@ def process(addr, tm, method, sortby, count, hb, fids):
             tmrec['mode'] = fidsmod(fids)
             if tm[0]: tmrec['oldest'] = tm[0]
             if tm[1]: tmrec['newest'] = tm[1]
+            if tm[2]: tmrec['step'] = tm[2]
             query['time'] = tmrec
             once = True
         except TypeError:

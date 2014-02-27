@@ -119,9 +119,23 @@ class Query(object):
         if newest <= self._oldest: return schedule
 
         # everything else falls into days
-        schedule[days.name()] = (newest, self._oldest)
+        doldest = max(days.first, days.fromstamp(self._oldest))
+        if newest > doldest:
+            schedule[days.name()] = (newest, doldest)
 
         return schedule
+    
+    def showschedule(self, nm):
+        msg = '%s schedule:\n'%(nm)
+        for k, v in self._schedule.items():
+            try:
+                iter(v) 
+                msg += "  %s: %s --> %s\n"%(k, tostamp(datetime.datetime.utcfromtimestamp(v[0])), 
+                                               tostamp(datetime.datetime.utcfromtimestamp(v[1])))
+            except:
+                msg += "  %s: %s\n"%(k, str(v))
+
+        logger.dump(msg)
     
     def collect(self, qbuf, sources):
         self._native.initbuf(qbuf._native)
@@ -132,7 +146,7 @@ class Query(object):
         if dayset:
             days = []
             for src in sources:
-                days.append(src.getminutes())
+                days.append(src.getdays())
             newest, oldest = dayset
             self._native.rundays(qbuf._native, days, newest, oldest, step)
         
@@ -140,7 +154,7 @@ class Query(object):
         if hourset:
             hours = []
             for src in sources:
-                hours.append(src.getminutes())
+                hours.append(src.gethours())
             newest, oldest = hourset
             self._native.runhours(qbuf._native, hours, newest, oldest, step)
         
@@ -272,7 +286,9 @@ class FlowQuery(FQuery):
         
         self._assigntime(nowstamp, newest, oldest, history.oldest())
         self._schedule = self._mkschedule(0, history, nowstamp)
-    
+
+        self.showschedule('flow')
+        
     def is_live(self):
         return False
     
@@ -304,6 +320,9 @@ class RangeQuery(Query):
                 step = history.oneday
 
         self._schedule = self._mkschedule(step, history, nowstamp)
+
+        self.showschedule('range')
+        
         self._shape = (None, None, 0)
 
     def is_live(self):
@@ -346,26 +365,49 @@ def _intfield(var):
 
 def _mkunit(schedule, newest, oldest, step, unit, nextunit):
     nm = unit.name()
-
+    
     # this unit is completely out of scope    
     if newest <= unit.oldest: return newest
+    
+    nextminwidth = flowtools.settings.minunits*nextunit.one
+    nextnewest = nextunit.fromstamp(newest)
+    unewest = unit.fromstamp(newest)
+    uoldest = unit.fromstamp(oldest)
+    
+    if step < nextminwidth:                                   # step is small enough
+        nextoldest = max(nextunit.oldest, nextunit.first, oldest)
+        if (step <= 0 or (step%nextunit.one) != 0 or          # nor matches exactly with next unit
+            (nextoldest+step*flowtools.settings.minunits) > nextnewest):   # or not enough units are requested from next
+            # seconds are needed for sure
+            if uoldest >= unit.oldest:
+                # only seconds are needed
+                if unit.first > uoldest: uoldest = unit.first
+                if unewest > uoldest:
+                    schedule[nm] = (unewest, uoldest)
+                    return uoldest
 
-    if step < flowtools.settings.minunits*nextunit.one:
-        # seconds are needed for sure
-        if oldest >= unit.oldest:
-            # only seconds are needed
-            schedule[nm] = (newest, oldest)
-            return oldest
-        # step is small enough to go with seconds as far as possible
-        nextnewest = nextunit.fromstamp(unit.oldest)
-        if nextnewest < newest:
-            schedule[nm] = (newest, nextnewest)
-            return nextnewest             # setup new cut off time
+                return newest
+            # step is small enough to go with seconds as far as possible
+            nextnewest = nextunit.fromstamp(unit.oldest)
+            if uoldest > nextnewest:            # if next one rewinds to older than my oldest
+                nextnewest += nextunit.one      # skip one next step  
+
     # step is large enough; let's switch to minutes right away
-    nextnewest = nextunit.now
-    if newest > nextnewest and (newest - nextnewest) > unit.one*flowtools.settings.minunits:
+    if unewest > nextnewest:
         # gap between newest time and newest minute is more than just couple of seconds
-        schedule[nm] = (newest, nextnewest)
+        if nextunit.first > nextnewest:     # next unit is not available yet
+            nextnewest = nextunit.first
+            if unewest > nextnewest:
+                schedule[nm] = (unewest, nextnewest)
+                return nextnewest
+            uoldest = max(unit.oldest, uoldest, unit.first)
+            if unewest > uoldest:
+                schedule[nm] = (unewest, uoldest)
+                return uoldest
+
+            return newest
+
+        schedule[nm] = (unewest, nextnewest)
         return nextnewest
 
     return newest

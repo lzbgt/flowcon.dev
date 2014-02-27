@@ -5,6 +5,7 @@ Created on Dec 9, 2013
 '''
 
 import argparse, zmq, names, pprint
+import dateutil.parser
 
 def main():
     parser = argparse.ArgumentParser()
@@ -92,6 +93,22 @@ def printline(fmt, *args):
     
 def showsizes(stats):
     w = 8
+    now = stats['now']
+    start = stats['oldest']
+    dn = dateutil.parser.parse(now)
+    ds = dateutil.parser.parse(start)
+    runtime = (dn-ds).total_seconds()
+    if runtime > 60*2:
+        if runtime > 3600*2:
+            if runtime > 3600*24*2:
+                rt = "%d days"%(runtime/3600/24)
+            else:
+                rt = "%d hours"%(runtime/3600)
+        else:
+            rt = "%d minutes"%(runtime/60)
+    else:
+        rt = "%d seconds"%(runtime)
+    print "run time: %s  server clock: %s"%(rt, now)
 
     acoll = stats['apps']['apps']['collector']
     print "\napps:"

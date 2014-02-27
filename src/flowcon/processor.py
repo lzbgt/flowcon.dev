@@ -21,7 +21,9 @@ class HUnit(object):
     def __init__(self, nm, seconds, count, stamp):
         self._name = nm
         self._one = seconds
+        self._first = None
         self._now = self.fromstamp(stamp)
+        self._first = self._now + self._one
         self._width = (count-1)*seconds
         
     @property
@@ -38,6 +40,10 @@ class HUnit(object):
     @property
     def oldest(self):
         return self._now-self._width
+    
+    @property
+    def first(self):
+        return self._first
     
     def tick(self, now):
         self._now = now
@@ -94,7 +100,7 @@ class History(object):
     def hours(self):
         return self._hour
     
-    def day(self):
+    def days(self):
         return self._day
     
 class FlowProc(connector.Connection):
@@ -121,7 +127,8 @@ class FlowProc(connector.Connection):
             stats.append(s.stats())
 #        res = {'fields':fields, 'stats':stats, 'apps':self._apps.report()}
         d = datetime.datetime.utcnow().replace(tzinfo=tzutc)
-        res = {'now':str(d),
+        res = {'oldest':str(self._history.oldest().replace(tzinfo=tzutc)),
+               'now':str(d),
                'stats':stats, 
                'apps':self._apps.status(),
                'querybuf':self._nbuf.status()}
