@@ -21,6 +21,7 @@ class Builder(object):
     def __init__(self):
         self.top = os.path.normpath(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'cython')))
         self.loc = os.path.join(self.top, 'gen')
+        if not os.path.isdir(self.loc): os.makedirs(self.loc)
         self.incs = os.path.join(self.top, '..', 'includes')
 
     def build(self, vres, gensource, cls, pref):

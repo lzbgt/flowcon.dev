@@ -1,6 +1,7 @@
 # distutils: language = c
 # distutils: include_dirs = ../includes
 # distutils: libraries = dl
+# distutils: define_macros = NPY_NO_DEPRECATION_WARNING=
 
 #### distutils: library_dirs = 
 #### distutils: depends = 

@@ -1,10 +1,10 @@
 # distutils: language = c
 # distutils: include_dirs = ../includes
 # distutils: libraries = z
+# distutils: define_macros = NPY_NO_DEPRECATION_WARNING=
 
 #### distutils: library_dirs = 
 #### distutils: depends = 
-
 
 import numpy as np
 cimport cython

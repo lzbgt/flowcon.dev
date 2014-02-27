@@ -5,23 +5,13 @@
 #### distutils: library_dirs = 
 #### distutils: depends = 
 
-import numpy as np
-import sys
 cimport cython
-cimport numpy as np
 
 from common cimport *
 from misc cimport logger, showflow
 from nquery cimport RawQuery
 from collectors cimport Collector
 from timecollect cimport SecondsCollector
-
-def _dummy():
-    "exists only to get rid of compile warnings"
-    cdef int tmp = 0
-    if tmp:
-        _import_umath()    
-        _import_array()
 
 cdef class Receiver(object):
     cdef sourceset

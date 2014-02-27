@@ -18,7 +18,7 @@ from Cython.Distutils import build_ext
 #        build_ext.build_extension(self, ext)
 
 ext_modules = cythonize(["misc.pyx", "nreceiver.pyx", "collectors.pyx", 'timecollect.pyx', 
-                         "nquery.pyx", "napps.pyx"])
+                         "nquery.pyx", "napps.pyx"], extra_compile_args=['-DNPY_NO_DEPRECATION_WARNING'])
 
 ext_modules.extend([Extension('minutescoll',
                              sources=['../csrc/minutescoll.c'], 
