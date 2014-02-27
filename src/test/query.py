@@ -4,7 +4,7 @@ Created on Nov 26, 2013
 @author: schernikov
 '''
 
-import argparse, zmq, datetime, pprint
+import argparse, zmq, datetime, pprint, dateutil.parser
 
 import names, flowcon.connector, flowcon.query
 
@@ -19,8 +19,8 @@ def main():
     parser.add_argument('-c', '--count', help='max number of entries to report', type=int)
     parser.add_argument('-b', '--heartbeat', help='heartbeat interval in seconds (default: %(default)s)', 
                         default=Query.heartbeat, type=int)
-    parser.add_argument('--oldest', help='ignore any records older than this in seconds from now', type=int)
-    parser.add_argument('--newest', help='ignore any records newer than this in seconds from now', type=int)
+    parser.add_argument('--oldest', help='ignore any records older than this in seconds from now')
+    parser.add_argument('--newest', help='ignore any records newer than this in seconds from now')
     parser.add_argument('--step', help='time step in seconds', type=int)
     
     args = parser.parse_args()
@@ -141,6 +141,18 @@ def fidsmod(fids):
                     return 'flows'
     return 'time'
                 
+def timetovalue(tm):
+    try:
+        return int(tm)
+    except:
+        pass
+    try:
+        d = str(dateutil.parser.parse(tm))
+    except:
+        d = None
+    if not d: raise Exception("Can not parse '%s' as time string"%(tm))
+    return d
+                
 def process(addr, tm, method, sortby, count, hb, fids):
     flows = {'fields':fids}
     query = {'flows':flows}
@@ -155,8 +167,8 @@ def process(addr, tm, method, sortby, count, hb, fids):
             iter(tm)
             # tm is iterable
             tmrec['mode'] = fidsmod(fids)
-            if tm[0]: tmrec['oldest'] = tm[0]
-            if tm[1]: tmrec['newest'] = tm[1]
+            if tm[0]: tmrec['oldest'] = timetovalue(tm[0])
+            if tm[1]: tmrec['newest'] = timetovalue(tm[1])
             if tm[2]: tmrec['step'] = tm[2]
             query['time'] = tmrec
             once = True

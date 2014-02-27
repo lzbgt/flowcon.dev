@@ -4,7 +4,7 @@ Created on Jan 28, 2014
 @author: schernikov
 '''
 
-import datetime, dateutil.tz
+import datetime, dateutil.tz, dateutil.parser
 
 import native.types as ntypes, native.dynamo, calendar
 import flowtools.logger as logger, flowtools.settings
@@ -341,6 +341,8 @@ def stamp2time(stamp):
         pass
     try:
         tm = dateutil.parser.parse(stamp)
+        if tm.tzinfo:           # strip timezone info and convert into utc
+            tm = datetime.datetime.combine(tm.date(), tm.time())-tm.utcoffset()
         if tm >= now:
             raise Exception("absolute time stamp %s should be older than current time (%s)"%(stamp, tostamp(now)))
     except Exception, e:
