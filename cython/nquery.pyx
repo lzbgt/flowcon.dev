@@ -118,6 +118,7 @@ cdef class QueryBuffer(object):
         self._positions.countpos = 0
         self._positions.totbytes = 0
         self._positions.totpackets = 0
+        self._positions.oldest = 0
     
         cdef int bits = int(np.math.log(2*sizehint-1, 2))
         cdef int indsize = 2**bits

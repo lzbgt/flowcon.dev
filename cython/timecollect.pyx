@@ -222,10 +222,19 @@ cdef class TimeCollector(object):
             return                                  # nothing to collect
             
         oldestpos = self._lookup(oldeststamp)
+        #TMP
+#        with gil:
+#            print "  %s: oldeststamp:%d -> %s[%d]  %d[0]"%(self._name, oldeststamp, self._stamps[oldestpos], oldestpos, self._stamps[0])
+        #
         
         cdef ipfix_query_info qinfo
         
         self._initqinfo(cython.address(qinfo))
+
+        cdef ipfix_query_pos* poses = bufinfo.getposes()
+
+        if poses.oldest == 0 or poses.oldest > self._stamps[oldestpos]:
+            poses.oldest = self._stamps[oldestpos]
 
         if step == 0:
             qinfo.stamp = neweststamp
@@ -410,13 +419,14 @@ cdef class LongCollector(TimeCollector):
         cdef uint32_t appidx, curpos, count, pos
 
         #TMP
-        print "%s: %d"%(self._name, stamp)
+        #print "%s: %d"%(self._name, stamp)
         #
 
         curpos = timecoll.currentpos()
         
         if self._prevtickpos == INVALID:
             self._prevtickpos = curpos
+            self.ontick(stamp)
             return
 
         self._query.initbuf(qbuf)
@@ -445,7 +455,7 @@ cdef class LongCollector(TimeCollector):
         for pos in range(count):
             colentry = acollection + pos
             tickentry = <ipfix_app_counts*>self._addentry()
-            if tickentry == NULL: return
+            if tickentry == NULL: break 
 
             tickentry.appindex = colentry.values.pos
             tickentry.inbytes = colentry.inbytes

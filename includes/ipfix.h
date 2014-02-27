@@ -118,6 +118,7 @@ typedef struct PACKED ipfix_query_pos {
 	uint32_t 			curpos;
 	uint32_t 			countpos;
 
+	uint64_t			oldest;
 	uint64_t			totbytes;
 	uint64_t			totpackets;
 } ipfix_query_pos_t;

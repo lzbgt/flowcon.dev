@@ -144,6 +144,7 @@ cdef extern from "ipfix.h":
         long    bufpos
         long    curpos
         long    countpos
+        long    oldest
         long    totbytes
         long    totpackets
                 

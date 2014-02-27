@@ -261,6 +261,22 @@ def writebytespackets(f, offset, pref):
     f.write("%s    poses->totpackets += counters->%spackets;\n"%(offset, pref))
     f.write("%s}\n"%(offset))
 
+def stringcall(f, nm):
+    f.write('        {\n')
+    f.write('            char tmbuf[80];\n')
+    f.write('            struct tm tmstamp;\n')
+    f.write('            time_t timestamp = (time_t)%s;\n'%(nm))
+    f.write('            if(gmtime_r(&timestamp, &tmstamp) == NULL){\n')
+    wsnprintf(f, "                ", r'"\"%llu\"", (LLUT)'+nm)
+    f.write('            } else {\n')
+    f.write('                if (strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S+00:00", &tmstamp) == 0) {\n')
+    wsnprintf(f, "                    ", r'"\"%llu\"", (LLUT)'+nm)
+    f.write('                } else {\n')
+    wsnprintf(f, "                    ", r'"\"%s\"", tmbuf')
+    f.write('                }\n')
+    f.write('            }\n')
+    f.write('        }\n')    
+
 def gentimesource(explns, explss, f, qid, css, lss, s):
     writehead(f, s)
     
@@ -281,23 +297,15 @@ def gentimesource(explns, explss, f, qid, css, lss, s):
     writeacheck(f, qid, colltypename, None, None, flowchecks, attrchecks, [stampname])
     
     def repcall(f):
-        f.write('        {\n')
-        f.write('            char tmbuf[80];\n')
-        f.write('            struct tm tmstamp;\n')
-        f.write('            time_t timestamp = (time_t)collection->values.%s;\n'%(stampname))
-        f.write('            if(gmtime_r(&timestamp, &tmstamp) == NULL){\n')
-        wsnprintf(f, "                ", r'"\"%llu\"", (LLUT)collection->values.'+stampname)
-        f.write('            } else {\n')
-        f.write('                if (strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S+00:00", &tmstamp) == 0) {\n')
-        wsnprintf(f, "                    ", r'"\"%llu\"", (LLUT)collection->values.'+stampname)
-        f.write('                } else {\n')
-        wsnprintf(f, "                    ", r'"\"%s\"", tmbuf')
-        f.write('                }\n')
-        f.write('            }\n')
-        f.write('        }\n')
+        stringcall(f, 'collection->values.%s'%(stampname))
         return ''
     
-    reportwriter(f, qid, False, repcall)
+    def attrcall(f):
+        wsnprintf(f, "    ", r'"\"start\":"')
+        stringcall(f, 'totals->oldest')
+        wsnprintf(f, "    ", r'","')
+    
+    reportwriter(f, qid, False, repcall, attrcall)
     
 def genflowsource(explns, explss, f, qid, css, lss, s):
     writehead(f, s)
@@ -347,9 +355,9 @@ def genflowsource(explns, explss, f, qid, css, lss, s):
     def repcall(f):
         return flowreported(f, tlst)
         
-    reportwriter(f, qid, hasip, repcall)
+    reportwriter(f, qid, hasip, repcall, None)
     
-def reportwriter(f, qid, hasip, fillcall):
+def reportwriter(f, qid, hasip, fillcall, attrcall):
     wfunchead(f, qid, 'size_t freport', "const ipfix_query_pos_t* totals", "int accending", "const void* buf", "uint32_t count", 
                       "char* out","size_t maxsize", "rep_callback_t callback", "void* obj")
     f.write("""
@@ -369,7 +377,12 @@ def reportwriter(f, qid, hasip, fillcall):
         step = -1;
     }""");
     f.write('\n')
-    wsnprintf(f, "    ", r'"{\"counts\":["')
+    if attrcall:
+        wsnprintf(f, "    ", r'"{"')
+        attrcall(f)
+        wsnprintf(f, "    ", r'"\"counts\":["')
+    else:
+        wsnprintf(f, "    ", r'"{\"counts\":["')
     f.write("    for (i = 0; i < count; ++i) {\n")
     f.write("        if(i == 0) {\n")
     wsnprintf(f, "            ", '"[["')

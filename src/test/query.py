@@ -116,6 +116,10 @@ class Query(flowcon.connector.Connection):
                 else:
                     totmsg = ''
                 print "got %d entries %s"%(len(ll), totmsg)
+                start = rep.get('start', '')
+                if start:
+                    print "  start: %s"%(start)
+
                 for l in ll:
                     print '  %s'%l
         print
