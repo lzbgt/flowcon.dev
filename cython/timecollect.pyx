@@ -360,13 +360,13 @@ cdef class SecondsCollector(TimeCollector):
         cdef ipfix_store_counts* counts = <ipfix_store_counts*>self._counterset
 
         if newloc >= prevloc:  # one chunk of data
-            apps.collect(flows, counts+prevloc, newloc-prevloc)
+            apps.collectports(flows, counts+prevloc, newloc-prevloc)
         else:
             # two chunks of data
             # collect older
-            apps.collect(flows, counts+prevloc, self._maxcount-prevloc)
+            apps.collectports(flows, counts+prevloc, self._maxcount-prevloc)
             # collect newer
-            apps.collect(flows, counts, newloc)
+            apps.collectports(flows, counts, newloc)
 
     @cython.boundscheck(False)
     cdef void _initqinfo(self, ipfix_query_info* qinfo) nogil:
@@ -380,7 +380,7 @@ cdef class SecondsCollector(TimeCollector):
     @cython.boundscheck(False)
     cdef void _rmold(self, const void* start, uint32_t count) nogil:
         cdef const ipfix_store_counts* countstart = <ipfix_store_counts*>start
-        self._apps.remove(self._flows.getflows(), countstart, count)
+        self._apps.removeports(self._flows.getflows(), countstart, count)
         self._flows.remove(countstart, count)
 
 
@@ -388,21 +388,31 @@ cdef int onminutescallback(void* obj, const void* entry, AppFlowValues* vals) no
     cdef AppFlowObjects* objects = <AppFlowObjects*>obj
     
     return (<MinutesCollector>objects.ticks)._onminapp(<Apps>objects.apps, 
-                                                       <AppFlowCollector>objects.flows, 
+                                                       <AppFlowCollector>objects.flows,
                                                        <ipfix_store_flow*>entry, vals)
     
 cdef int onhourscallback(void* obj, const void* entry, AppFlowValues* vals) nogil:
     cdef AppFlowObjects* objects = <AppFlowObjects*>obj
     
-    return (<HoursCollector>objects.ticks)._onhoursapp(<AppFlowCollector>objects.flows, <ipfix_app_flow*>entry, vals)
+    return (<HoursCollector>objects.ticks)._onhoursapp(<Apps>objects.apps,
+                                                       <AppFlowCollector>objects.flows,
+                                                       <ipfix_app_flow*>entry, vals)
+    
+cdef void onhoursredux(void* obj, ipfix_app_counts* counters, const ipfix_app_flow* aflow, const ipfix_apps* app) nogil:
+    cdef AppFlowObjects* objects = <AppFlowObjects*>obj
+
+    (<HoursCollector>objects.ticks)._onhoursredux(<Apps>objects.apps, counters, aflow, app)
+
 
 cdef class LongCollector(TimeCollector):
  
-    def __init__(self, nm, uint32_t ip, libname, callname, AppFlowCollector appflows, uint32_t ticksdepth, uint32_t stamp):
+    def __init__(self, nm, uint32_t ip, libname, callname, AppFlowCollector appflows, uint32_t ticksdepth, uint32_t stamp, uint32_t refs):
         super(LongCollector, self).__init__(nm, ip, sizeof(ipfix_app_counts), ticksdepth, stamp)        
 
+        self._apps = appflows._apps
         self._appflows = appflows
         self._prevtickpos = INVALID
+        self._minrefs = refs
         self._query = SimpleQuery(libname, callname)
 
     @cython.boundscheck(False)
@@ -416,7 +426,8 @@ cdef class LongCollector(TimeCollector):
 
     @cython.boundscheck(False)
     cdef void _onlongtick(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, 
-                          TimeCollector timecoll, uint64_t stamp, FlowAppCallback callback):
+                          TimeCollector timecoll, uint64_t stamp, 
+                          FlowAppCallback callback, ReduxCallback redux):
         cdef uint32_t appidx, curpos, count, pos
 
         #TMP
@@ -443,6 +454,8 @@ cdef class LongCollector(TimeCollector):
         objects.flows = <void*>flows
         
         qinfo.callback = callback
+        qinfo.redux = redux
+        qinfo.minrefs = self._minrefs
         qinfo.callobj = cython.address(objects)
         
         timecoll._collect(self._query, qbuf, cython.address(qinfo), self._prevtickpos, curpos)
@@ -466,6 +479,11 @@ cdef class LongCollector(TimeCollector):
 
         self.ontick(stamp)
 
+    @cython.boundscheck(False)
+    cdef void _rmold(self, const void* start, uint32_t count) nogil:
+        cdef const ipfix_app_counts* countstart = <ipfix_app_counts*>start
+        self._appflows.removeapps(countstart, count)
+
     def status(self, TimeCollector prevcoll):
         cdef prev
         cdef d
@@ -483,18 +501,16 @@ cdef class LongCollector(TimeCollector):
 cdef class MinutesCollector(LongCollector):
  
     def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t minutesdepth, uint32_t stamp):
-        super(MinutesCollector, self).__init__(nm, ip, libname, 'minutes', appflows, minutesdepth, stamp)        
+        super(MinutesCollector, self).__init__(nm, ip, libname, 'minutes', appflows, minutesdepth, stamp, 0)        
         
     @cython.boundscheck(False)
     def onminute(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, SecondsCollector seccoll, uint64_t stamp):
-        self._onlongtick(qbuf, apps, flows, seccoll, stamp, onminutescallback)
+        self._onlongtick(qbuf, apps, flows, seccoll, stamp, onminutescallback, NULL)
 
     @cython.boundscheck(False)
     cdef int _onminapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil:
         cdef int ingress
         cdef ipfix_app_tuple atup
-        cdef uint32_t pos
-        cdef ipfix_store_entry* entryrec
         cdef const ipfix_flow_tuple* flow = cython.address(flowentry.flow)
         
         atup.application = apps.getflowapp(flow, cython.address(ingress))
@@ -502,44 +518,42 @@ cdef class MinutesCollector(LongCollector):
         if ingress == 0:
             atup.srcaddr = flow.dstaddr
             atup.dstaddr = flow.srcaddr
-            entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
-            
-            flows._onegress(entryrec, flowentry.attrindex)
         else:
             atup.srcaddr = flow.srcaddr
             atup.dstaddr = flow.dstaddr
-            entryrec = flows._findentry(cython.address(atup), cython.address(pos), sizeof(atup))
 
-            flows._oningress(entryrec, flowentry.attrindex)
-
-        vals.crc = entryrec.crc
-        vals.pos = pos
+        flows.findapp(cython.address(atup), flowentry.attrindex, vals, ingress)
 
         return ingress
+    
 
 cdef class HoursCollector(LongCollector):
-    def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t hoursdepth, uint32_t stamp):
-        super(HoursCollector, self).__init__(nm, ip, libname, 'hours', appflows, hoursdepth, stamp)
+    def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t hoursdepth, uint32_t stamp, uint32_t minrefs):
+        super(HoursCollector, self).__init__(nm, ip, libname, 'hours', appflows, hoursdepth, stamp, minrefs)
 
     @cython.boundscheck(False)
     def onhour(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, MinutesCollector mincoll, uint64_t stamp):
-        self._onlongtick(qbuf, apps, flows, mincoll, stamp, onhourscallback)
+        self._onlongtick(qbuf, apps, flows, mincoll, stamp, onhourscallback, onhoursredux)
 
     @cython.boundscheck(False)
-    cdef int _onhoursapp(self, AppFlowCollector flows, const ipfix_app_flow* flowentry, AppFlowValues* vals) nogil:
-
-        #TODO; find more generic app if possible        
+    cdef int _onhoursapp(self, Apps apps, AppFlowCollector flows, const ipfix_app_flow* flowentry, AppFlowValues* vals) nogil:
+        #let's find more generic app if possible
+            
         vals.crc = flowentry.crc
 
         return 0
+    
+    @cython.boundscheck(False)
+    cdef void _onhoursredux(self, Apps apps, ipfix_app_counts* counters, const ipfix_app_flow* aflow, const ipfix_apps* app) nogil:
+        pass
 
 cdef class DaysCollector(LongCollector):
-    def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t daysdepth, uint32_t stamp):
-        super(DaysCollector, self).__init__(nm, ip, libname, 'days', appflows, daysdepth, stamp)
+    def __init__(self, nm, uint32_t ip, libname, AppFlowCollector appflows, uint32_t daysdepth, uint32_t stamp, uint32_t minrefs):
+        super(DaysCollector, self).__init__(nm, ip, libname, 'days', appflows, daysdepth, stamp, minrefs)
         
     @cython.boundscheck(False)
     def onday(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, HoursCollector hourcoll, uint64_t stamp):
-        self._onlongtick(qbuf, apps, flows, hourcoll, stamp, NULL)
+        self._onlongtick(qbuf, apps, flows, hourcoll, stamp, NULL, NULL)
 
 
 def _dummy():

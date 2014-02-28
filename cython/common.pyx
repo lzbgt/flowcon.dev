@@ -104,6 +104,7 @@ cdef extern from "ipfix.h":
         long    pos
         
     ctypedef int (*FlowAppCallback)(void* obj, const void* flow, AppFlowValues* vals) nogil
+    ctypedef void (*ReduxCallback)(void* obj, ipfix_app_counts* counters, const ipfix_app_flow* aflow, const ipfix_apps* app) nogil
         
     cdef struct ipfix_app_flow:
         long                next
@@ -111,6 +112,7 @@ cdef extern from "ipfix.h":
         ipfix_app_tuple     app
         long                inattrindex
         long                outattrindex
+        long                refcount
 
     cdef struct ipfix_apps_ports:
         int     protocol
@@ -121,6 +123,7 @@ cdef extern from "ipfix.h":
         long                next
         long                crc
         ipfix_apps_ports    ports
+        long                refcount
         
     cdef struct ipfix_query_info:
         const void*                    entries
@@ -132,7 +135,9 @@ cdef extern from "ipfix.h":
         long                           stamp
         long                           exporter
         FlowAppCallback                callback
+        ReduxCallback                  redux
         void*                          callobj
+        long                           minrefs
 
     cdef struct ipfix_query_buf:
         void*   data

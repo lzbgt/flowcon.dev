@@ -148,6 +148,7 @@ typedef struct PACKED ipfix_app_flow {
 	ipfix_app_tuple_t 	app;
 	indextype			inattrindex;
 	indextype			outattrindex;
+	uint32_t 			refcount;
 } ipfix_app_flow_t;
 
 typedef struct PACKED ipfix_apps_ports {
@@ -172,7 +173,10 @@ typedef struct PACKED ipfix_apps {
 	indextype				next;
 	uint32_t				crc;
 	ipfix_apps_ports_t 		ports;
+	uint32_t			    refcount;
 } ipfix_apps_t;
+
+typedef void (*ReduxCallback)(void* obj, ipfix_app_counts_t* counters, const ipfix_app_flow_t* aflow, const ipfix_apps_t* app);
 
 typedef struct PACKED ipfix_query_info {
 	const void* 					entries;
@@ -184,7 +188,9 @@ typedef struct PACKED ipfix_query_info {
 	uint64_t						stamp;
 	uint32_t 				  		exporter;
 	FlowAppCallback					callback;
+	ReduxCallback					redux;
 	void* 							callobj;
+	uint32_t 						minrefs;
 } ipfix_query_info_t;
 
 typedef struct PACKED AppFlowObjects {

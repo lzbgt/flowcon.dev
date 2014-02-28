@@ -12,5 +12,8 @@ maxminutes = 1440   # one day
 maxhours   = 720    # one month
 maxdays    = 365    # one year
 
+hoursrefs = 1       # all apps will this many or less references will be generalized (=removed)
+daysrefs = 1
+
 portrate   = 2.0    # ratio between two flow ports (src and dst) to consider one as application
 minthreshold = 100  # don't consider as an application unless port count over this threshold  

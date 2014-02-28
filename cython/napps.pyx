@@ -46,7 +46,7 @@ cdef class Apps(Collector):
         self._portcounts = <uint32_t*>arr.data
     
     @cython.boundscheck(False)
-    cdef void collect(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
+    cdef void collectports(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef uint32_t pos, index
         cdef const ipfix_flow_tuple* flow
         cdef uint32_t* portcounts = self._portcounts
@@ -113,15 +113,35 @@ cdef class Apps(Collector):
                         ports.src = dst
                         ports.dst = src
         
-        return self._add(cython.address(ports), 0, sizeof(ipfix_apps_ports))
+        cdef uint32_t apppos
+        
+        cdef ipfix_apps* apprec = <ipfix_apps*>self._findentry(cython.address(ports), 
+                                                               cython.address(apppos), sizeof(ipfix_apps_ports))
+        
+        apprec.refcount += 1
+        
+        return apppos        
 
     @cython.boundscheck(False)
-    cdef void reduce(self) nogil:
-        pass
-        #self._removepos(<ipfix_store_entry*>flow, index, sz) # delete entry
+    cdef void removeapp(self, uint32_t index) nogil:
+        cdef int sz = self._width
+        cdef unsigned char* eset = self.entryset
+        cdef ipfix_apps* apprec
+
+        apprec = <ipfix_apps*>(eset+index*sz)
+
+        if apprec.refcount == 0:  # already deleted 
+            return
+        if apprec.refcount > 1:   # still referenced
+            apprec.refcount -= 1
+            return
+
+        apprec.refcount = 0
+
+        self._removepos(<ipfix_store_entry*>apprec, index, sz) # delete entry
 
     @cython.boundscheck(False)
-    cdef void remove(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
+    cdef void removeports(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef uint32_t pos, index
         cdef const ipfix_flow_tuple* flow
         cdef uint32_t* portcounts = self._portcounts

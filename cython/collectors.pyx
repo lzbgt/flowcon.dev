@@ -342,13 +342,44 @@ cdef class AppFlowCollector(Collector):
                        ('outattrindex','u%d'%sizeof(flow.outattrindex))]
 
     @cython.boundscheck(False)
-    cdef void _oningress(self, ipfix_store_entry* entry, uint32_t index) nogil:
-        cdef ipfix_app_flow* aflow = <ipfix_app_flow*>entry
-        
-        aflow.inattrindex = index
+    cdef void findapp(self, const ipfix_app_tuple* atup, uint32_t attrindex, AppFlowValues* vals, int ingress) nogil:
+        cdef uint32_t pos
+        cdef ipfix_app_flow* aflow
 
-    @cython.boundscheck(False)
-    cdef void _onegress(self, ipfix_store_entry* entry, uint32_t index) nogil:
-        cdef ipfix_app_flow* aflow = <ipfix_app_flow*>entry
+        aflow = <ipfix_app_flow*>self._findentry(atup, cython.address(pos), sizeof(ipfix_app_tuple))
         
-        aflow.outattrindex = index
+        aflow.refcount += 1
+        
+        if ingress != 0:
+            aflow.inattrindex = attrindex
+        else:
+            aflow.outattrindex = attrindex
+        
+        vals.crc = aflow.crc
+        vals.pos = pos
+        
+        
+    @cython.boundscheck(False)    
+    cdef void removeapps(self, const ipfix_app_counts* counts, uint32_t num) nogil:
+        cdef int sz = self._width
+        cdef uint32_t pos, index
+        cdef unsigned char* eset = self.entryset
+        cdef ipfix_app_flow* aflow
+
+        for pos in range(num):
+            index = counts[pos].appindex
+
+            aflow = <ipfix_app_flow*>(eset+index*sz)
+
+            if aflow.refcount == 0:  # already deleted 
+                continue
+            if aflow.refcount > 1:   # still referenced
+                aflow.refcount -= 1
+                continue
+
+            aflow.refcount = 0
+
+            (<Apps>self._apps).removeapp(aflow.app.application)
+
+            self._removepos(<ipfix_store_entry*>aflow, index, sz) # delete entry
+            

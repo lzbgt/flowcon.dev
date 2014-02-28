@@ -89,11 +89,16 @@ class Sources(object):
         self._appflows = colmod.AppFlowCollector("C"+self._name, apps._nativeapps, self._attrs)
         self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
         libname = os.path.join(native.libloc, 'minutescoll.so')
-        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxminutes, stamp)
+        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, 
+                                                    self._appflows, flowtools.settings.maxminutes, stamp)
         libname = os.path.join(native.libloc, 'hourscoll.so')
-        self._hours = timecolmod.HoursCollector("H:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxhours, stamp)
+        self._hours = timecolmod.HoursCollector("H:"+self._name, self._ip, libname, 
+                                                self._appflows, flowtools.settings.maxhours, 
+                                                stamp, flowtools.settings.hoursrefs)
         libname = os.path.join(native.libloc, 'dayscoll.so')
-        self._days = timecolmod.DaysCollector("D:"+self._name, self._ip, libname, self._appflows, flowtools.settings.maxdays, stamp)
+        self._days = timecolmod.DaysCollector("D:"+self._name, self._ip, libname, 
+                                              self._appflows, flowtools.settings.maxdays, 
+                                              stamp, flowtools.settings.daysrefs)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
