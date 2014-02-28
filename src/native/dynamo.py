@@ -511,20 +511,31 @@ def wfunchead(f, qid, fn, *args):
             f.write("%s, \n%s"%(a, off))
         f.write("%s){\n"%(args[-1]))
     
+def ln2str(pref, ln):
+    if not ln: return ln
+    if len > 1:
+        res = ''
+        for l in ln[:-1]:
+            res += '%s%s || '%(pref, l)
+        res += '%s%s'%(pref, ln[-1])
+    else:
+        res = '%s%s'%(pref, ln[0])
+    return res
+    
 def wcondition(f, pref, lns):
     if len(lns) == 1:
-        ln = lns[0]
+        ln = ln2str(pref, lns[0])
         if ln:
-            f.write("    if (%s%s) { return 0; }\n"%(pref, ln))
+            f.write("    if (%s) { return 0; }\n"%(ln))
     elif len(lns) > 1:
         s = "    if ("
         f.write(s)
         for ln in lns[:-1]:
             if not ln: continue
-            f.write('(%s%s)'%(pref, ln))
+            f.write('(%s)'%(ln2str(pref, ln)))
             f.write(' &&\n')
             f.write(' '*len(s))
-        f.write("(%s%s)) { return 0; }\n"%(pref, lns[-1]))
+        f.write("(%s)) { return 0; }\n"%(ln2str(pref, lns[-1])))
     
 def wcondgroup(f, cgroup):
     for fk in sorted(cgroup.keys()):
@@ -625,15 +636,15 @@ def _mkone(pref, ftype, v):
         res = ipvariations(v)
         if res is None: # check exact value match
             try:
-                return "%s%s != 0x%x"%(pref, ftype.name, ftype.convert(v))
+                return ("%s%s != 0x%x"%(pref, ftype.name, ftype.convert(v)),)
             except:
                 raise Exception("Expected IP got '%s'"%(v))
         if not res:     # any will match
             return ""
         mn, mx = res
-        return "%s%s < 0x%x || %s%s > 0x%x"%(pref, ftype.name, mn, pref, ftype.name, mx)
+        return ("%s%s < 0x%x"%(pref, ftype.name, mn), "%s%s < 0x%x"%(pref, ftype.name, mx))
     
-    return "%s%s != 0x%x"%(pref, ftype.name, toint(v)) 
+    return ("%s%s != 0x%x"%(pref, ftype.name, toint(v)),) 
 
 def writetail(f):
     f.write('\n')
