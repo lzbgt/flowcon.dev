@@ -48,17 +48,19 @@ cdef class SecondsCollector(TimeCollector):
 
 cdef class LongCollector(TimeCollector):
     cdef uint32_t _prevtickpos
-    cdef uint32_t _minrefs
     cdef SimpleQuery _query
     cdef AppFlowCollector _appflows
     cdef Apps _apps
-    
+
+    cdef const ipfix_app_flow* _getappflows(self) nogil
     cdef void _onlongtick(self, QueryBuffer qbuf, Apps apps, AppFlowCollector flows, 
                           TimeCollector timecoll, uint64_t stamp, 
-                          FlowAppCallback callback, ReduxCallback redux)
+                          FlowAppCallback callback)
 
 
 cdef class MinutesCollector(LongCollector):
+    cdef uint32_t _checkcount
+    cdef uint32_t _checkperiod
 
     cdef int _onminapp(self, Apps apps, AppFlowCollector flows, const ipfix_store_flow* flowentry, AppFlowValues* vals) nogil
     
@@ -66,8 +68,6 @@ cdef class MinutesCollector(LongCollector):
 cdef class HoursCollector(LongCollector):
 
     cdef int _onhoursapp(self, Apps apps, AppFlowCollector flows, const ipfix_app_flow* flowentry, AppFlowValues* vals) nogil
-    cdef void _onhoursredux(self, Apps apps, ipfix_app_counts* counters, 
-                            const ipfix_app_flow* aflow, const ipfix_apps* app) nogil
     
 cdef class DaysCollector(LongCollector):
     pass

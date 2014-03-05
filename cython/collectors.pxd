@@ -39,4 +39,5 @@ cdef class AppFlowCollector(Collector):
     cdef AttrCollector _attributes
 
     cdef void findapp(self, const ipfix_app_tuple* atup, uint32_t attrindex, AppFlowValues* vals, int ingress) nogil
+    cdef void countflowapp(self, ipfix_app_flow* aflow) nogil
     cdef void removeapps(self, const ipfix_app_counts* counts, uint32_t num) nogil

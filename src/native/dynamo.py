@@ -239,7 +239,7 @@ def writedirection(f, dname, d, appd, flowtypes, attrtypes, flowchecks, attrchec
     if attrtypes or attrchecks:
         f.write("                attr = &((firstattr + flowentry->%sattrindex)->attributes);\n"%(d))
         if attrchecks:        
-            f.write("                if(check_flow_attr(attr))")
+            f.write("                if(flowentry->%sattrindex > 0 && check_flow_attr(attr))"%(d))
     f.write("                {\n")
     offset = "                    "
     if flowtypes or attrtypes:

@@ -61,6 +61,7 @@ class History(object):
         now = datetime.datetime.utcnow()
         self._oldest = now
         stamp = native.query.mkstamp(now)
+        self._now = datetime.datetime.utcfromtimestamp(stamp)
         self._second = HUnit('seconds', self.onesecond, flowtools.settings.maxseconds, stamp)
         self._minute = HUnit('minutes', self.oneminute, flowtools.settings.maxminutes, stamp)
         self._hour = HUnit('hours', self.onehour, flowtools.settings.maxhours, stamp)
@@ -72,6 +73,7 @@ class History(object):
     def tick(self):
         now = datetime.datetime.utcnow()
         stamp = native.query.mkstamp(now)
+        self._now = datetime.datetime.utcfromtimestamp(stamp)
         mins = None
         hours = None
         days = None
@@ -89,7 +91,10 @@ class History(object):
                     if self._day.now != day:
                         self._day.tick(day)
                         days = day
-        return now, mins, hours, days
+        return now, stamp, mins, hours, days
+    
+    def now(self):
+        return self._now
     
     def seconds(self):
         return self._second
@@ -136,17 +141,15 @@ class FlowProc(connector.Connection):
              
     def on_time(self):
         # check for expired peers
-        now, mins, hours, days = self._history.tick()
+        now, secs, mins, hours, days = self._history.tick()
 
         self._check_peers(now)
         
-        stamp = self._history.seconds().now
-        
         for source in self._nreceiver.sources():
-            source.on_time(self._nbuf, stamp, mins, hours, days)
+            source.on_time(self._nbuf, secs, mins, hours, days)
             
         for per in self._periodic.values():
-            res = per.on_time(self._nbuf, now, stamp)
+            res = per.on_time(self._nbuf, now, secs)
             if res:
                 qrec = self._long_queries.get(per.id, None)
                 if qrec:
@@ -189,6 +192,8 @@ class FlowProc(connector.Connection):
                 import traceback
                 traceback.print_exc()
                 logger.dump("bad query: %s from %s (hb:%ds): %s"%(query, [addr], hb, str(e)))
+                err = {'error':str(e), 'badmsg':req}
+                self._send(addr, err)
                 return
 
             logger.dump("got query %s from %s (hb:%ds):\n%s\n"%(q.id, [addr], hb, pprint.pformat(query)))

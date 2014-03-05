@@ -257,7 +257,10 @@ cdef class FlowCollector(Collector):
 
             flow = <ipfix_store_flow*>(eset+index*sz)
 
-            if flow.refcount == 0:  # already deleted 
+            if flow.refcount == 0:  # already deleted
+                with gil:
+                    logger("%s: deleting unreferenced flow %s[%d]"%(self._name, 
+                                                showflow(cython.address(flow.flow)), index))
                 continue
             if flow.refcount > 1:   # still referenced
                 flow.refcount -= 1
@@ -348,8 +351,6 @@ cdef class AppFlowCollector(Collector):
 
         aflow = <ipfix_app_flow*>self._findentry(atup, cython.address(pos), sizeof(ipfix_app_tuple))
         
-        aflow.refcount += 1
-        
         if ingress != 0:
             aflow.inattrindex = attrindex
         else:
@@ -358,6 +359,13 @@ cdef class AppFlowCollector(Collector):
         vals.crc = aflow.crc
         vals.pos = pos
         
+    @cython.boundscheck(False)    
+    cdef void countflowapp(self, ipfix_app_flow* aflow) nogil:
+        if aflow.refcount == 0:
+            # newly created flow app; let's account for it in global apps
+            (<Apps>self._apps).countapp(aflow.app.application)
+
+        aflow.refcount += 1
         
     @cython.boundscheck(False)    
     cdef void removeapps(self, const ipfix_app_counts* counts, uint32_t num) nogil:

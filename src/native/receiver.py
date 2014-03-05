@@ -89,16 +89,15 @@ class Sources(object):
         self._appflows = colmod.AppFlowCollector("C"+self._name, apps._nativeapps, self._attrs)
         self._seconds = timecolmod.SecondsCollector("S:"+self._name, self._ip, self._flows, flowtools.settings.maxseconds, stamp)
         libname = os.path.join(native.libloc, 'minutescoll.so')
-        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, 
-                                                    self._appflows, flowtools.settings.maxminutes, stamp)
+        self._minutes = timecolmod.MinutesCollector("M:"+self._name, self._ip, libname, self._appflows, 
+                                                    flowtools.settings.maxminutes, stamp, 
+                                                    flowtools.settings.checkminutes)
         libname = os.path.join(native.libloc, 'hourscoll.so')
         self._hours = timecolmod.HoursCollector("H:"+self._name, self._ip, libname, 
-                                                self._appflows, flowtools.settings.maxhours, 
-                                                stamp, flowtools.settings.hoursrefs)
+                                                self._appflows, flowtools.settings.maxhours, stamp)
         libname = os.path.join(native.libloc, 'dayscoll.so')
         self._days = timecolmod.DaysCollector("D:"+self._name, self._ip, libname, 
-                                              self._appflows, flowtools.settings.maxdays, 
-                                              stamp, flowtools.settings.daysrefs)
+                                              self._appflows, flowtools.settings.maxdays, stamp)
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
@@ -148,7 +147,10 @@ class Sources(object):
 class Apps(object):
     
     def __init__(self):
-        self._nativeapps = appsmod.Apps(flowtools.settings.portrate, flowtools.settings.minthreshold)
+        actseconds = int(flowtools.settings.checkminutes*60*flowtools.settings.activerate)
+        self._nativeapps = appsmod.Apps(flowtools.settings.portrate, 
+                                        flowtools.settings.minthreshold,
+                                        actseconds)
 
     def status(self):
         return self._nativeapps.status()

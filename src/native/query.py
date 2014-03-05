@@ -59,6 +59,8 @@ class Query(object):
         per = _intfield(time)
         if per is not None:
             return PeriodicQuery(qry, fields, shape, max(per, 1))
+        
+        now = history.now()        
 
         mode = time.get('mode', None)
         if mode is None: raise Exception("missing 'time.mode' attribute")
@@ -67,12 +69,12 @@ class Query(object):
             if per is None: raise Exception("missing valid 'time.seconds' for 'time.periodic' mode")
             return PeriodicQuery(qry, fields, shape, max(per, 1))
         elif mode == 'flows':
-            oldest = stamp2time(time.get('oldest', None))
-            newest = stamp2time(time.get('newest', None))
+            oldest = stamp2time(now, time.get('oldest', None))
+            newest = stamp2time(now, time.get('newest', None))
             return FlowQuery(qry, fields, shape, newest, oldest, history)
         elif mode == 'time':
-            oldest = stamp2time(time.get('oldest', None))
-            newest = stamp2time(time.get('newest', None))
+            oldest = stamp2time(now, time.get('oldest', None))
+            newest = stamp2time(now, time.get('newest', None))
             step = _intfield(time.get('step', None))
             return RangeQuery(qry, fields, newest, oldest, step, history)
 
@@ -88,6 +90,10 @@ class Query(object):
         if not newest:
             self._newest = nowstamp
         else:
+            if newest <= oldesthistory:
+                raise Exception("Bad time specs. Newest '%s' should be newer than oldest available '%s'"%(tostamp(newest),
+                                                                                                          tostamp(oldesthistory)))
+
             stamp = mkstamp(newest)
             if stamp >= nowstamp:
                 self._newest = nowstamp
@@ -303,6 +309,7 @@ class RangeQuery(Query):
         self._native = native.dynamo.gentime(fields)
                 
         nowstamp = history.seconds().now
+        print "now: %s newest:%s oldest:%s"%(str(nowstamp), str(nwst), str(odst))
         self._assigntime(nowstamp, nwst, odst, history.oldest())
         
         if step is None:
@@ -328,14 +335,15 @@ class RangeQuery(Query):
     def is_live(self):
         return False
     
-def stamp2time(stamp):
+def stamp2time(now, stamp):
     if stamp is None: return None
-    now = datetime.datetime.utcnow()
+
     try:
         # check if it's relative time stamp in seconds back into history
         then = float(stamp)
         if then <= 0:
             raise Exception("can handle only positive number of seconds for relative period in seconds, not %s"%(stamp))
+        print "returning now:%s - %f"%(now, then)
         return now-datetime.timedelta(seconds=then)
     except:
         pass
