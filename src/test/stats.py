@@ -13,23 +13,36 @@ def main():
     parser.add_argument('-f', '--fields', help='show all detected IPFix fields', action='store_true')
     parser.add_argument('-s', '--status', help='show collector status', action='store_true')
     parser.add_argument('-m', '--memory', help='show collector memory usage', action='store_true')
+    parser.add_argument('-d', '--debug', help='debug collector')
     
     args = parser.parse_args()
 
-    if not args.fields and not args.status and not args.memory:
+    if not args.fields and not args.status and not args.memory and not args.debug:
         print "\nNothing to show...\n\n"
         parser.print_help()
         return
     
-    process(args.interface, args.fields, args.status, args.memory)
+    if args.debug is not None:
+        try:
+            dreq = zmq.utils.jsonapi.loads(args.debug)
+        except:
+            print "\ncan not convert '%s' from JSON"%(args.debug)
+            return
+    else:
+        dreq = None
     
-def process(addr, f, s, m):
+    process(args.interface, args.fields, args.status, args.memory, dreq)
+    
+def process(addr, f, s, m, d):
     context = zmq.Context()
     print "Connecting to server..."
     socket = context.socket(zmq.DEALER)
     socket.connect (addr)
-    
-    msg = zmq.utils.jsonapi.dumps({'status':''})
+
+    if d:
+        msg = zmq.utils.jsonapi.dumps({'status':{'debug':d}})
+    else:
+        msg = zmq.utils.jsonapi.dumps({'status':''})
     socket.send (msg)
 
     message = socket.recv()
@@ -50,6 +63,9 @@ def process(addr, f, s, m):
 
     if m:
         showsizes(stats)
+        
+    if d:
+        pprint.pprint(stats)
         
 def showstats(stats):
         apps = stats.get('apps', None)

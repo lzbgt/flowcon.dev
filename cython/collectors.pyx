@@ -13,7 +13,7 @@ cimport numpy as np
 from common cimport *
 from napps cimport Apps
 
-from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate
+from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate, debentries
 
 def _dummy():
     "exists only to get rid of compile warnings"
@@ -189,7 +189,7 @@ cdef class Collector(object):
         return <ipfix_store_entry*>(self.entryset+pos*self._width)
 
     def entries(self):
-        return self._entries.view(dtype=self.dtypes)
+        return self._entries.view(dtype=self.dtypes)[:,0]
     
     def indices(self):
         return self._indices.view(dtype='u4')
@@ -217,8 +217,13 @@ cdef class FlowCollector(Collector):
         
         self.dtypes = [('next',     'u%d'%sizeof(flow.next)),
                        ('crc',      'u%d'%sizeof(flow.crc)),
-                       ('flow',     'a%d'%sizeof(flow.flow)),
-                       ('attrindex','u%d'%sizeof(flow.attrindex))]
+                       ('protocol', 'u%d'%sizeof(flow.flow.protocol)),
+                       ('srcport', 'u%d'%sizeof(flow.flow.srcport)),
+                       ('srcaddr', 'u%d'%sizeof(flow.flow.srcaddr)),
+                       ('dstport', 'u%d'%sizeof(flow.flow.dstport)),
+                       ('dstaddr', 'u%d'%sizeof(flow.flow.dstaddr)),
+                       ('attrindex','u%d'%sizeof(flow.attrindex)),
+                       ('refcount','u%d'%sizeof(flow.refcount))]
 
     @cython.boundscheck(False)
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil:
@@ -316,7 +321,13 @@ cdef class FlowCollector(Collector):
             newsize = <uint32_t>(self.maxentries/shrinkrate)
             if newsize < minsize: return
             self._resize(newsize)
-        
+
+    def debug(self, req):
+        return debentries(req, 'flows', self.entries(), 
+                          ('protocol', 'srcport', ('srcaddr', 'ip'), 'dstport', 
+                                                  ('dstaddr', 'ip'), 'attrindex', 'refcount'), 
+                          ('refcount',))
+
 
 cdef class AttrCollector(Collector):
 
@@ -326,7 +337,21 @@ cdef class AttrCollector(Collector):
 
         self.dtypes = [('next',      'u%d'%sizeof(attr.next)),
                        ('crc',       'u%d'%sizeof(attr.crc)),
-                       ('attributes','a%d'%sizeof(attr.attributes))]        
+                       ('tos',       'u%d'%sizeof(attr.attributes.tos)),
+                       ('tcpflags',  'u%d'%sizeof(attr.attributes.tcpflags)),
+                       ('srcmask',   'u%d'%sizeof(attr.attributes.srcmask)),
+                       ('inpsnmp',   'u%d'%sizeof(attr.attributes.inpsnmp)),
+                       ('dstmask',   'u%d'%sizeof(attr.attributes.dstmask)),
+                       ('outsnmp',   'u%d'%sizeof(attr.attributes.outsnmp)),
+                       ('nexthop',   'u%d'%sizeof(attr.attributes.nexthop)),
+                       ('srcas',     'u%d'%sizeof(attr.attributes.srcas)),
+                       ('dstas',     'u%d'%sizeof(attr.attributes.dstas))]
+        
+    def debug(self, req):
+        return debentries(req, 'attributes', self.entries(), 
+                          ('tos', 'tcpflags', 'srcmask', 'inpsnmp', 'dstmask', 'outsnmp', 
+                           ('nexthop', 'ip'), 'srcas', 'dstas'), ())
+
 
 
 cdef class AppFlowCollector(Collector):
@@ -338,11 +363,14 @@ cdef class AppFlowCollector(Collector):
         self._apps = apps
         self._attributes = attribs
         
-        self.dtypes = [('next',     'u%d'%sizeof(flow.next)),
-                       ('crc',      'u%d'%sizeof(flow.crc)),
-                       ('app',     'a%d'%sizeof(flow.app)),
+        self.dtypes = [('next',       'u%d'%sizeof(flow.next)),
+                       ('crc',        'u%d'%sizeof(flow.crc)),
+                       ('application','u%d'%sizeof(flow.app.application)),
+                       ('srcaddr',    'u%d'%sizeof(flow.app.srcaddr)),
+                       ('dstaddr',    'u%d'%sizeof(flow.app.dstaddr)),
                        ('inattrindex','u%d'%sizeof(flow.inattrindex)),
-                       ('outattrindex','u%d'%sizeof(flow.outattrindex))]
+                       ('outattrindex','u%d'%sizeof(flow.outattrindex)),
+                       ('refcount','u%d'%sizeof(flow.refcount))]
 
     @cython.boundscheck(False)
     cdef void findapp(self, const ipfix_app_tuple* atup, uint32_t attrindex, AppFlowValues* vals, int ingress) nogil:
@@ -390,4 +418,11 @@ cdef class AppFlowCollector(Collector):
             (<Apps>self._apps).removeapp(aflow.app.application)
 
             self._removepos(<ipfix_store_entry*>aflow, index, sz) # delete entry
+            
+    def debug(self, req):
+        return debentries(req, 'appflows', self.entries(), 
+                           ('application', ('srcaddr', 'ip'), ('dstaddr', 'ip'), 
+                            'inattrindex', 'outattrindex', 'refcount'), 
+                           ('refcount',))
+
             

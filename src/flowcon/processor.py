@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, pprint
+import zmq, datetime, pprint, traceback
 import dateutil.tz
 
 from zmq.eventloop import ioloop
@@ -124,7 +124,42 @@ class FlowProc(connector.Connection):
         res = zmq.utils.jsonapi.dumps(res)
         self.send_multipart([addr, res])
                     
-    def _on_status(self, addr, msg):
+    def _on_status(self, addr, req):
+        if isinstance(req, dict):
+            deb = req.get('debug', None)
+            if deb is not None:
+                try:
+                    adeb = deb.get('app', None)
+                    if adeb is not None:
+                        res = self._apps.debug(adeb)
+                        self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
+                        return
+                    sdeb = deb.get('source', None)
+                    if sdeb is not None:
+                        snm = sdeb.get('name', None)
+                        if snm is not None:
+                            for s in self._nreceiver.sources():
+                                if s.name == snm:
+                                    res = s.debug(sdeb)
+                                    break
+                            else:
+                                res = {'error':"can not find source with name %s"%(snm), 'request':req}
+                        else:
+                            slist = []
+                            for s in self._nreceiver.sources():
+                                slist.append(s.name)
+                            res = {'sources':slist}
+                        self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
+                        return
+                    res = {'error':"don't know what to do with request", 'request':req}
+                    self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
+                    return
+                except Exception, e:
+                    traceback.print_exc()
+                    res = {'error':"can not debug: '%s'"%(str(e))}
+                    self.send_multipart([addr, zmq.utils.jsonapi.dumps(res)])
+                    return
+        
         stats = []
 #        fields = {}
         for s in self._nreceiver.sources():
@@ -189,7 +224,6 @@ class FlowProc(connector.Connection):
             try:
                 q = querymod.Query.create(query, self._history)
             except Exception, e:
-                import traceback
                 traceback.print_exc()
                 logger.dump("bad query: %s from %s (hb:%ds): %s"%(query, [addr], hb, str(e)))
                 err = {'error':str(e), 'badmsg':req}

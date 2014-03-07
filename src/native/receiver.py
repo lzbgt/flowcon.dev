@@ -144,6 +144,28 @@ class Sources(object):
     def ip(self):
         return self._ip
     
+    def debug(self, req):
+        freq = req.get('flows', None)
+        if freq is not None:
+            res = self._flows.debug(freq)
+            if res is None:
+                return {"error":"don't know what to do with request", "request":req}
+            return res
+        
+        freq = req.get('attributes', None)
+        if freq is not None:
+            res = self._attrs.debug(freq)
+            if res is None:
+                return {"error":"don't know what to do with request", "request":req}
+            return res
+        
+        freq = req.get('appflows', None)
+        if freq is not None:
+            res = self._appflows.debug(freq)
+            if res is None:
+                return {"error":"don't know what to do with request", "request":req}
+            return res
+
 class Apps(object):
     
     def __init__(self):
@@ -154,3 +176,9 @@ class Apps(object):
 
     def status(self):
         return self._nativeapps.status()
+
+    def debug(self, req):
+        res = self._nativeapps.debug(req)
+        if res is None:
+            return {"error":"don't know what to do with request", "request":req}
+        return res

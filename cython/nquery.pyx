@@ -188,7 +188,7 @@ cdef class QueryBuffer(object):
             fnm  = dtype[field][0]
 
             if suffix > 0: dtype.append(('suffix',  'a%d'%(suffix)))
-            eview = self._entries[self._width:((count+1)*self._width)].view(dtype=dtype)    # skip first entry
+            eview = self._entries[self._width:((count+1)*self._width)].view(dtype=dtype)[:,0]    # skip first entry
             
             if slice != 0:
                 if slice > 0:   # max elements needed

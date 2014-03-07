@@ -1,5 +1,6 @@
 
 cdef extern from "stdint.h":
+    ctypedef long uint8_t
     ctypedef long uint16_t
     ctypedef long uint32_t
     ctypedef long uint64_t

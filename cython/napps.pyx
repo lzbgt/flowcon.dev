@@ -8,7 +8,7 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
-from misc cimport logger
+from misc cimport logger, getreqval, debentries
 from collectors cimport Collector
 
 def _dummy():
@@ -25,13 +25,16 @@ cdef class Apps(Collector):
         
         cdef ipfix_apps apps
 
-        self.dtypes = [('next',      'u%d'%sizeof(apps.next)),
-                       ('crc',       'u%d'%sizeof(apps.crc)),
-                       ('protocol',  'u%d'%sizeof(apps.ports.protocol)),
+        self.dtypes = [('next',       'u%d'%sizeof(apps.next)),
+                       ('crc',        'u%d'%sizeof(apps.crc)),
+                       ('protocol',   'u%d'%sizeof(apps.ports.protocol)),
                        ('src',        'u%d'%sizeof(apps.ports.src)),
-                       ('dst',        'u%d'%sizeof(apps.ports.dst))]                
+                       ('dst',        'u%d'%sizeof(apps.ports.dst)),
+                       ('ticks',      'u%d'%sizeof(apps.ticks)),
+                       ('activity',   'u%d'%sizeof(apps.activity)),
+                       ('refcount',   'u%d'%sizeof(apps.refcount))]
         
-        cdef uint32_t size
+        cdef uint32_t pos, nports
         
         self._totalcount = 0
         self._zeroportcount = 0
@@ -39,36 +42,68 @@ cdef class Apps(Collector):
         self._minthreshold = minthreshold
         self._minactivity = minactivity
 
-        size = 2**16
-        self._pcobj = np.zeros(size, dtype=np.uint32)
+        nports = 2**8
+
+        self._protobjs = np.zeros(nports, dtype=object)
+        self._protarr = np.zeros(nports, dtype=np.uint64)
+        cdef np.ndarray[np.uint64_t, ndim=1] parr = self._protarr
         
-        cdef np.ndarray[np.uint32_t, ndim=1] arr = self._pcobj
+        self._protset = <uint64_t*>parr.data
+        for pos in range(nports):
+            self._protset[pos] = <uint64_t>NULL
+            self._protobjs[pos] = None
+            
+    @cython.boundscheck(False)
+    cdef uint32_t* _addprotocol(self, uint8_t protocol):
+        cdef uint32_t size = 2**16
+        cdef uint32_t* counts
+
+        cdef countsobj = np.zeros(size, dtype=np.uint32)
+        self._protobjs[protocol] = countsobj
         
-        self._portcounts = <uint32_t*>arr.data
+        cdef np.ndarray[np.uint32_t, ndim=1] arr = countsobj
+        
+        counts = <uint32_t*>arr.data
+        self._protset[protocol] = <uint64_t>counts
+
+        return counts
     
     @cython.boundscheck(False)
     cdef void collectports(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef uint32_t pos, index
         cdef const ipfix_flow_tuple* flow
-        cdef uint32_t* portcounts = self._portcounts
+        cdef uint32_t* portcounts
 
         for pos in range(num):
             index = counts[pos].flowindex
             
             flow = cython.address(flows[index].flow)
+            portcounts = <uint32_t*>(self._protset[flow.protocol])
+            if portcounts == NULL:
+                with gil:
+                    portcounts = self._addprotocol(flow.protocol)
+            
             portcounts[flow.srcport] += 1
             portcounts[flow.dstport] += 1
             self._totalcount += 2
-            
-            
             
     @cython.boundscheck(False)
     cdef int _evalports(self, ipfix_apps_ports* ports, uint16_t src, uint16_t dst) nogil:
         cdef float rt = self._portrate
         cdef uint32_t srccnt, dstcnt
+        cdef uint32_t* portcounts
+        
+        portcounts = <uint32_t*>(self._protset[ports.protocol])
+        if portcounts == NULL:
+            with gil:
+                logger("%s: attempt account for %d->%d ports from missing %d protocol"%(self._name, 
+                                                                                      src,
+                                                                                      dst,
+                                                                                      ports.protocol))
+            return 0
 
-        srccnt = self._portcounts[src]
-        dstcnt = self._portcounts[dst]
+        srccnt = portcounts[src]
+        dstcnt = portcounts[dst]
         
         if srccnt > dstcnt:
             if srccnt >= self._minthreshold and srccnt >= dstcnt*rt:
@@ -194,19 +229,38 @@ cdef class Apps(Collector):
     cdef void removeports(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:
         cdef uint32_t pos, index
         cdef const ipfix_flow_tuple* flow
-        cdef uint32_t* portcounts = self._portcounts
+        cdef uint32_t* portcounts
 
         for pos in range(num):
             index = counts[pos].flowindex
             flow = cython.address(flows[index].flow)
+            portcounts = <uint32_t*>(self._protset[flow.protocol])
+            if portcounts == NULL:
+                with gil:
+                    logger("%s: attempt to remove %d->%d ports from missing %d protocol"%(self._name, 
+                                                                                          flow.srcport,
+                                                                                          flow.dstport,
+                                                                                          flow.protocol))
+                return
+            
             portcounts[flow.srcport] -= 1
             portcounts[flow.dstport] -= 1
             self._totalcount -= 2
 
     def status(self):
         cdef baserep = super(Apps, self).status()
+        cdef arr
         
-        res = {'ports':{'bytes':int(self._pcobj.nbytes), 'total':int(self._totalcount), 
+        cdef int protbytes = 0
+        cdef int protcount = 0
+        for pos in range(len(self._protobjs)):
+            arr = self._protobjs[pos]
+            if arr is None: continue
+            protbytes += arr.nbytes
+            protcount += 1
+        
+        res = {'ports':{'bytes':int(protbytes), 'total':int(self._totalcount),
+                        'protocols':{'count':int(protcount), 'bytes':int(self._protobjs.nbytes)}, 
                         'settings':{'rate':float(self._portrate), 
                                     'thres':int(self._minthreshold),
                                     'activity':self._minactivity}},
@@ -214,22 +268,62 @@ cdef class Apps(Collector):
 
         return res
 
-    def extstatus(self):
-        cdef uint32_t* portcounts = self._portcounts
-        cdef uint32_t pos, size = self._pcobj.size
-        
-        cdef ports = {}
-        
-        for pos in range(size):
-            if portcounts[pos] == 0: continue
-            ports[pos] = portcounts[pos]
+    def debprotocol(self, req):
+            protnum = req.get('num', None)
+            if protnum is None:
+                prots = []
+                for num in range(len(self._protobjs)):
+                    if self._protobjs[num] is None: continue
+                    prots.append(num)
+                return {'protocols':prots}
+            try:
+                protnum = int(protnum)
+            except:
+                return {'error':'invalid protocol number %s'%(protnum)}
+
+            if protnum >= len(self._protobjs):
+                return {'error':'unexpected protocol number %d'%(protnum)}
+
+            counters = self._protobjs[protnum]
+            if counters is None:
+                return {'error':'no records for protocol %d'%(protnum)}
+
+            hist = req.get('hist', None)
+            if hist is not None:
+                try:
+                    hist = int(hist)
+                except:
+                    return {'error':'unexpected histogram bins %s'%(hist)}
+                hh, hb = np.histogram(counters, bins=hist)
+                countrecs = []
+                for num in range(len(hh)):
+                    countrecs.append(("%.1f"%(hb[num]), hh[num]))
+                
+                return {'protocol':{'num':protnum, 'histogram':countrecs}}
             
-        cdef apps = []
-        cdef appset = self.entries()
+            tres = getreqval(req, 'treshold', 0)
+
+            countrecs = []
+            for num in range(len(counters)):
+                if counters[num] <= tres: continue
+                countrecs.append((num, int(counters[num])))
+                
+            return {'protocol':{'num':protnum, 'counters':countrecs, 'total':int(self._totalcount)}}
+
+    def debapps(self, req):
+        apps = self.entries()
+        return debentries(req, 'apps', self.entries(),
+                   ('protocol', 'src', 'dst', 'ticks', 'activity', 'refcount'),
+                   ('ticks', 'activity', 'refcount'))
+
+    def debug(self, req):
+        preq = req.get('protocol', None)
+        if preq is not None:
+            return self.debprotocol(preq)
         
-        cdef int p1idx = appset.dtype.names.index('src')
-        cdef int p2idx = appset.dtype.names.index('dst')
-        
-        for app in appset[1:self.end,0]:
-            apps.append((int(app[p1idx]), int(app[p2idx])))
-       
+        areq = req.get('apps', None)    
+        if areq is not None:
+            return self.debapps(areq)
+
+        return None
+

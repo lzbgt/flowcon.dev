@@ -7,8 +7,6 @@ Created on Jan 10, 2014
 import numpy as np
 import numpyfy.tools.hash as hashtool
 
-import flowtools.logger as logger
-
 class Collector(object):
     def __init__(self, nm, types, startsize=16):
         self._nm = nm

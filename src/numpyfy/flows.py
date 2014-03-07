@@ -6,7 +6,7 @@ Created on Jan 7, 2014
 
 import numpy as np, hashlib
 
-import flowtools.logger as logger, numpyfy.tools.hash as hashtool
+import numpyfy.tools.hash as hashtool
 
 class Type(object):
     all = {}
