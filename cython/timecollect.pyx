@@ -12,7 +12,7 @@ cimport numpy as np
 from common cimport *
 
 #from collectors
-from misc cimport logger, minsize, growthrate, shrinkrate
+from misc cimport logger, minsize, growthrate, shrinkrate, backtable, backparm, resparm
 from napps cimport Apps
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
@@ -42,6 +42,14 @@ cdef class TimeCollector(object):
 
         self._first = self._counterset
         self._last = self._counterset
+        
+    def backup(self, fileh, grp):
+        backtable(grp, , self.entries())
+
+        backparm(self, grp, )
+
+    def restore(self, fileh, grp):
+        resparm(self, grp, )
         
     @cython.boundscheck(False)
     cdef void _alloc(self, uint32_t size):

@@ -13,7 +13,8 @@ cimport numpy as np
 from common cimport *
 from napps cimport Apps
 
-from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate, debentries
+from misc cimport logger, showapp, showflow, showattr, minsize, 
+from misc cimport growthrate, shrinkrate, debentries, backtable, backparm, resparm
 
 def _dummy():
     "exists only to get rid of compile warnings"
@@ -35,6 +36,29 @@ cdef class Collector(object):
         self._entries = np.zeros((1, width), dtype=np.uint8)
         self._indices = np.zeros(1, dtype=np.dtype('u4'))
         self._resz(size)
+        
+    def backup(self, fileh, grp):
+        backtable(grp, 'entries', self.entries())
+        backtable(grp, 'indices', self.indices())
+        backparm(self, grp, 'freepos')
+        backparm(self, grp, 'freecount')
+        backparm(self, grp, 'end')
+
+    def restore(self, fileh, grp):
+        resparm(self, grp, 'freepos')
+        resparm(self, grp, 'freecount')
+        resparm(self, grp, 'end')
+        
+        ents = fileh.get_node(grp, 'entries')
+        if self._width != ents.rowsize:
+            raise Exception("%s width (%d) does not match with stored width (%d)"%(self._name, 
+                                                                                   self._width, 
+                                                                                   ents.rowsize))
+        self._resz(len(ents))
+        ents.read(out=self._entries)
+        
+        inds = fileh.get_node(grp, 'indices')
+        inds.read(out=self._indices)
         
     @cython.boundscheck(False)
     cdef int _resz(self, int size):
@@ -363,14 +387,14 @@ cdef class AppFlowCollector(Collector):
         self._apps = apps
         self._attributes = attribs
         
-        self.dtypes = [('next',       'u%d'%sizeof(flow.next)),
-                       ('crc',        'u%d'%sizeof(flow.crc)),
-                       ('application','u%d'%sizeof(flow.app.application)),
-                       ('srcaddr',    'u%d'%sizeof(flow.app.srcaddr)),
-                       ('dstaddr',    'u%d'%sizeof(flow.app.dstaddr)),
-                       ('inattrindex','u%d'%sizeof(flow.inattrindex)),
-                       ('outattrindex','u%d'%sizeof(flow.outattrindex)),
-                       ('refcount','u%d'%sizeof(flow.refcount))]
+        self.dtypes = [('next',         'u%d'%sizeof(flow.next)),
+                       ('crc',          'u%d'%sizeof(flow.crc)),
+                       ('application',  'u%d'%sizeof(flow.app.application)),
+                       ('srcaddr',      'u%d'%sizeof(flow.app.srcaddr)),
+                       ('dstaddr',      'u%d'%sizeof(flow.app.dstaddr)),
+                       ('inattrindex',  'u%d'%sizeof(flow.inattrindex)),
+                       ('outattrindex', 'u%d'%sizeof(flow.outattrindex)),
+                       ('refcount',     'u%d'%sizeof(flow.refcount))]
 
     @cython.boundscheck(False)
     cdef void findapp(self, const ipfix_app_tuple* atup, uint32_t attrindex, AppFlowValues* vals, int ingress) nogil:
@@ -407,7 +431,10 @@ cdef class AppFlowCollector(Collector):
 
             aflow = <ipfix_app_flow*>(eset+index*sz)
 
-            if aflow.refcount == 0:  # already deleted 
+            if aflow.refcount == 0:  # already deleted
+                with gil:
+                    logger("%s: deleting unreferenced app flow %s[%d]"%(self._name, 
+                                                showapp(cython.address(aflow.app)), index))
                 continue
             if aflow.refcount > 1:   # still referenced
                 aflow.refcount -= 1

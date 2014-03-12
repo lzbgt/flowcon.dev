@@ -8,7 +8,7 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
-from misc cimport logger, getreqval, debentries
+from misc cimport logger, getreqval, debentries, backtable, backparm, resparm
 from collectors cimport Collector
 
 def _dummy():
@@ -53,20 +53,66 @@ cdef class Apps(Collector):
             self._protset[pos] = <uint64_t>NULL
             self._protobjs[pos] = None
             
-    @cython.boundscheck(False)
-    cdef uint32_t* _addprotocol(self, uint8_t protocol):
-        cdef uint32_t size = 2**16
-        cdef uint32_t* counts
+    
+    def backup(self, fileh, grp):
+        super(Apps, self).backup(fileh, grp)
+        
+        backparm(self, grp, '_totalcount')
+        backparm(self, grp, '_zeroportcount')
 
-        cdef countsobj = np.zeros(size, dtype=np.uint32)
+        pgrp = fileh.create_group(grp, 'protocols')
+        for pos in range(len(self._protobjs)):
+            pobj = self._protobjs[pos]
+            if pobj is None: continue
+            backtable(pgrp, 'p%d'%(pos), pobj)
+    
+    def restore(self, fileh, grp):
+        cdef int protocol
+        pgrp = fileh.get_node(grp, 'protocols')
+
+        for tbl in fileh.iter_nodes(pgrp, 'Table'):
+            nm = tbl.name
+            if nm[0] != 'p':
+                logger('Ignoring protocol %s. Unexpected name.'%(nm)) 
+                continue
+            try:
+                protocol = int(nm[1:])
+            except:
+                logger('Ignoring protocol %s. Unexpected name.'%(nm))
+                continue
+            if protocol <= 0 or protocol > 255: 
+                logger('Ignoring protocol %s. Unexpected value %d.'%(nm, protocol))
+                continue
+
+            expsize = 2**16
+            pobj = tbl.read()
+            if len(pobj) != expsize:
+                raise Exception("Unexpected table size: %d != %d"%(len(pobj), expsize))
+            self._regprotocol(self, pobj, protocol)
+        
+        resparm(self, grp, '_totalcount')    
+        resparm(self, grp, '_zeroportcount')
+        
+        super(Apps, self).restore(fileh, grp)
+    
+    @cython.boundscheck(False)
+    cdef uint32_t* _regprotocol(self, countobj, uint8_t protocol):
         self._protobjs[protocol] = countsobj
         
         cdef np.ndarray[np.uint32_t, ndim=1] arr = countsobj
         
-        counts = <uint32_t*>arr.data
+        cdef uint32_t* counts = <uint32_t*>arr.data
         self._protset[protocol] = <uint64_t>counts
 
         return counts
+    
+    @cython.boundscheck(False)
+    cdef uint32_t* _addprotocol(self, uint8_t protocol):
+        cdef uint32_t size = 2**16
+
+        cdef countsobj = np.zeros(size, dtype=np.uint32)
+        
+        return self._regprotocol(countsobj, protocol)
     
     @cython.boundscheck(False)
     cdef void collectports(self, const ipfix_store_flow* flows, const ipfix_store_counts* counts, uint32_t num) nogil:

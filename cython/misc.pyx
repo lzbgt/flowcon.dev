@@ -118,7 +118,19 @@ def toip(uint32_t ip):
     for _ in range(4):
         nm = ('%d.'%(ip & 0xFF))+nm 
         ip >>= 8
-    return nm
+    return nm[:-1]
+
+def backtable(grp, nm, ents):
+    tbl = fileh.create_table(grp, nm, ents.dtype, expectedrows=len(ents))
+    tbl.append(ents)
+    tbl.flush()
+    
+def backparm(obj, grp, nm):
+    setattr(grp._v_attrs, nm, getattr(obj, nm))
+
+def resparm(obj, grp, nm):
+    setattr(obj, nm, getattr(grp._v_attrs, nm))
+
 
 def _dummy():
     "exists only to get rid of compile warnings"

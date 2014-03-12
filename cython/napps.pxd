@@ -14,6 +14,7 @@ cdef class Apps(Collector):
 	cdef uint32_t _minthreshold
 	cdef uint32_t _minactivity
 
+	cdef uint32_t* _regprotocol(self, countobj, uint8_t protocol)
 	cdef uint32_t* _addprotocol(self, uint8_t protocol)
 	cdef int _evalports(self, ipfix_apps_ports* ports, uint16_t src, uint16_t dst) nogil
 	cdef uint32_t getflowapp(self, const ipfix_flow_tuple* flow, int* ingress) nogil

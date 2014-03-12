@@ -13,3 +13,6 @@ python -m test.stats -i tcp://localhost:5567 -d '{"source":{}}'
 
 #source flows
 python -m test.stats -i tcp://localhost:5567 -d '{"source":{"name":"198.154.124.14", "flows":{}}}'
+
+#source appflows
+python -m test.stats -i tcp://localhost:5567 -d '{"source":{"name":"198.154.124.14", "appflows":{"count":100}}}'
