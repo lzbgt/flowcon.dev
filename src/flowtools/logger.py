@@ -4,6 +4,8 @@ Created on Dec 4, 2013
 @author: schernikov
 '''
 
+import datetime
+
 output = None
 
 def setout(out):
@@ -12,5 +14,6 @@ def setout(out):
     
 def dump(txt):
     if not output: return
-    print >>output, txt
+    d = datetime.datetime.now()
+    output.write("%s: %s\n"%(d.strftime("%Y-%m-%d %H:%M:%S"), txt))
     output.flush()

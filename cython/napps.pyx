@@ -8,7 +8,8 @@ cimport cython
 cimport numpy as np
 
 from common cimport *
-from misc cimport logger, getreqval, debentries, backtable, backparm, resparm
+from misc cimport logger, getreqval, debentries
+from misc import backtable, backparm, resparm
 from collectors cimport Collector
 
 def _dummy():
@@ -64,7 +65,7 @@ cdef class Apps(Collector):
         for pos in range(len(self._protobjs)):
             pobj = self._protobjs[pos]
             if pobj is None: continue
-            backtable(pgrp, 'p%d'%(pos), pobj)
+            backtable(fileh, pgrp, 'p%d'%(pos), pobj)
     
     def restore(self, fileh, grp):
         cdef int protocol
@@ -88,7 +89,7 @@ cdef class Apps(Collector):
             pobj = tbl.read()
             if len(pobj) != expsize:
                 raise Exception("Unexpected table size: %d != %d"%(len(pobj), expsize))
-            self._regprotocol(self, pobj, protocol)
+            self._regprotocol(pobj, protocol)
         
         resparm(self, grp, '_totalcount')    
         resparm(self, grp, '_zeroportcount')
@@ -97,9 +98,9 @@ cdef class Apps(Collector):
     
     @cython.boundscheck(False)
     cdef uint32_t* _regprotocol(self, countobj, uint8_t protocol):
-        self._protobjs[protocol] = countsobj
+        self._protobjs[protocol] = countobj
         
-        cdef np.ndarray[np.uint32_t, ndim=1] arr = countsobj
+        cdef np.ndarray[np.uint32_t, ndim=1] arr = countobj
         
         cdef uint32_t* counts = <uint32_t*>arr.data
         self._protset[protocol] = <uint64_t>counts

@@ -8,6 +8,7 @@ cdef class TimeCollector(object):
     cdef _name
     cdef uint32_t _ip
     cdef _counters
+    cdef dtypes
     cdef void* _counterset
     cdef void* _last
     cdef void* _first
@@ -23,6 +24,7 @@ cdef class TimeCollector(object):
     cdef void _alloc(self, uint32_t size)
     cdef void* _addentry(self) nogil
     cdef void _grow(self)
+    cdef void _resize(self, uint32_t newsize)
     cdef void _fixticks(self, void* start, uint32_t sz, uint32_t offset, uint32_t startsz) nogil
     cdef uint32_t ontick(self, uint64_t stamp) nogil
     cdef uint32_t _lookup(self, uint64_t oldeststamp) nogil

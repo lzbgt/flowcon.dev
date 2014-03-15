@@ -4,9 +4,9 @@ Created on Jan 28, 2014
 @author: schernikov
 '''
 
-import datetime, dateutil.tz, dateutil.parser
+import datetime, dateutil.tz, dateutil.parser, calendar
 
-import native.types as ntypes, native.dynamo, calendar
+import native.types as ntypes, native.dynamo
 import flowtools.logger as logger, flowtools.settings
 
 tzutc = dateutil.tz.tzutc()

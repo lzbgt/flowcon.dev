@@ -13,8 +13,8 @@ cimport numpy as np
 from common cimport *
 from napps cimport Apps
 
-from misc cimport logger, showapp, showflow, showattr, minsize, 
-from misc cimport growthrate, shrinkrate, debentries, backtable, backparm, resparm
+from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate, debentries 
+from misc import backtable, backparm, resparm
 
 def _dummy():
     "exists only to get rid of compile warnings"
@@ -38,8 +38,8 @@ cdef class Collector(object):
         self._resz(size)
         
     def backup(self, fileh, grp):
-        backtable(grp, 'entries', self.entries())
-        backtable(grp, 'indices', self.indices())
+        backtable(fileh, grp, 'entries', self.entries())
+        backtable(fileh, grp, 'indices', self.indices())
         backparm(self, grp, 'freepos')
         backparm(self, grp, 'freecount')
         backparm(self, grp, 'end')
@@ -51,9 +51,9 @@ cdef class Collector(object):
         
         ents = fileh.get_node(grp, 'entries')
         if self._width != ents.rowsize:
-            raise Exception("%s width (%d) does not match with stored width (%d)"%(self._name, 
-                                                                                   self._width, 
-                                                                                   ents.rowsize))
+            raise Exception("%s width (%d) does not match stored width (%d)"%(self._name, 
+                                                                              self._width, 
+                                                                              ents.rowsize))
         self._resz(len(ents))
         ents.read(out=self._entries)
         

@@ -12,7 +12,8 @@ cimport numpy as np
 from common cimport *
 
 #from collectors
-from misc cimport logger, minsize, growthrate, shrinkrate, backtable, backparm, resparm
+from misc cimport logger, minsize, growthrate, shrinkrate
+from misc import backtable, backparm, backval, resparm, resval
 from napps cimport Apps
 
 cdef uint32_t INVALID = (<uint32_t>(-1))
@@ -44,12 +45,42 @@ cdef class TimeCollector(object):
         self._last = self._counterset
         
     def backup(self, fileh, grp):
-        backtable(grp, , self.entries())
+        backtable(fileh, grp, 'ticks', self._ticks)
+        backtable(fileh, grp, 'stamps', self._stamps)
+        backtable(fileh, grp, 'counters', self.counters())
 
-        backparm(self, grp, )
+        backparm(self, grp, '_currenttick')
+        backparm(self, grp, '_count')
+        backval(grp, 'first', (<uint64_t>self._first)-(<uint64_t>self._counterset))
+        backval(grp, 'last', (<uint64_t>self._last)-(<uint64_t>self._counterset))
 
     def restore(self, fileh, grp):
-        resparm(self, grp, )
+        counters = fileh.get_node(grp, 'counters')
+        if self._width != counters.rowsize:
+            raise Exception("%s width (%d) does not match stored width (%d)"%(self._name, 
+                                                                              self._width, 
+                                                                              counters.rowsize))
+        self._resize(len(counters))
+        counters.read(out=self._counters)
+        
+        cdef uint64_t first = resval(grp, 'first')
+        self._first = <void*>((<char*>self._counterset)+first)
+        cdef uint64_t last = resval(grp, 'last')
+        self._last = <void*>((<char*>self._counterset)+last)
+        
+        resparm(self, grp, '_count')
+        
+        ticks = fileh.get_node(grp, 'ticks')
+        if self._depth != len(ticks):
+            raise Exception("%s change in ticks depth can not be handled yet: %d != %d"%(self._name, 
+                                                                                         self._depth,
+                                                                                         len(ticks)))
+        ticks.read(out=self._ticks)
+        
+        stamps = fileh.get_node(grp, 'stamps')
+        stamps.read(out=self._stamps)
+
+        resparm(self, grp, '_currenttick')
         
     @cython.boundscheck(False)
     cdef void _alloc(self, uint32_t size):
@@ -59,7 +90,7 @@ cdef class TimeCollector(object):
         arr = self._counters
         self._counterset = <void*>arr.data
         self._maxcount = size
-        self._end = (<char*>self._counterset) + self._maxcount*sz
+        self._end = (<char*>self._counterset) + size*sz
 
     @cython.boundscheck(False)    
     cdef void* _addentry(self) nogil:
@@ -81,15 +112,17 @@ cdef class TimeCollector(object):
         return last
     
     @cython.boundscheck(False)
+    @cython.boundscheck(False)
     cdef void _grow(self):
-        cdef uint32_t pos, tickpos, offset, startsz, newsize
+        self._resize(<uint32_t>(self._maxcount*growthrate))
+        
+    cdef void _resize(self, uint32_t newsize):
+        cdef uint32_t pos, tickpos, offset, startsz
         cdef void* start = self._counterset
         cdef void* end = self._end
         cdef oldcounters = self._counters
         cdef uint64_t startbytes, endbytes
         cdef uint32_t sz = self._width
-
-        newsize = <uint32_t>(self._maxcount*growthrate)
 
 #        logger("%s: growing time counters %d->%d"%(self._name, self._maxcount, newsize))
         
@@ -325,7 +358,7 @@ cdef class TimeCollector(object):
 
     def status(self):
         cdef uint32_t sz = self._width
-        cdef d = datetime.datetime.utcfromtimestamp(self._stamps[self._currenttick]).replace(tzinfo=tzutc)
+
         return {'entries':{'size':len(self._counters),
                            'bytes':int(self._counters.nbytes),
                            'count':int(self._count),
@@ -335,11 +368,20 @@ cdef class TimeCollector(object):
                          'position':int(self._currenttick),
                          'stamp':self._stamptostr(self._currenttick)}}
                 
+    def counters(self):
+        return self._counters.view(dtype=self.dtypes)[:,0]
+                
 
 cdef class SecondsCollector(TimeCollector):
 
     def __init__(self, nm, uint32_t ip, FlowCollector flows, uint32_t secondsdepth, uint32_t stamp):
         super(SecondsCollector, self).__init__(nm, ip, sizeof(ipfix_store_counts), secondsdepth, stamp)
+        
+        cdef ipfix_store_counts fcount
+        
+        self.dtypes = [('flowindex',    'u%d'%sizeof(fcount.flowindex)),
+                       ('bytes',        'u%d'%sizeof(fcount.bytes)),
+                       ('packets',      'u%d'%sizeof(fcount.packets))]
 
         self._flows = flows
 
@@ -411,6 +453,14 @@ cdef class LongCollector(TimeCollector):
  
     def __init__(self, nm, uint32_t ip, libname, callname, AppFlowCollector appflows, uint32_t ticksdepth, uint32_t stamp):
         super(LongCollector, self).__init__(nm, ip, sizeof(ipfix_app_counts), ticksdepth, stamp)        
+
+        cdef ipfix_app_counts acount
+        
+        self.dtypes = [('appindex',    'u%d'%sizeof(acount.appindex)),
+                       ('inbytes',     'u%d'%sizeof(acount.inbytes)),
+                       ('inpackets',   'u%d'%sizeof(acount.inpackets)),
+                       ('outbytes',    'u%d'%sizeof(acount.outbytes)),
+                       ('outpackets',  'u%d'%sizeof(acount.outpackets))]
 
         self._apps = appflows._apps
         self._appflows = appflows
@@ -507,6 +557,16 @@ cdef class LongCollector(TimeCollector):
         res['ticks']['prevstamp'] = prev
 
         return res
+
+    def backup(self, fileh, grp):
+        super(LongCollector, self).backup(fileh, grp)
+
+        backparm(self, grp, '_prevtickpos')
+
+    def restore(self, fileh, grp):
+        super(LongCollector, self).restore(fileh, grp)
+        
+        resparm(self, grp, '_prevtickpos')
 
 
 cdef class MinutesCollector(LongCollector):

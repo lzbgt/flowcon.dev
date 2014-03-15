@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, pprint, traceback
+import zmq, datetime, pprint, traceback, tables, os
 import dateutil.tz
 
 from zmq.eventloop import ioloop
@@ -14,6 +14,8 @@ import connector, flowtools.logger as logger , flowtools.settings, native.query 
 #import numpyfy.source as querymod
 import native.receiver
 
+miscmod = native.loadmod('misc')
+
 tzutc = dateutil.tz.tzutc()
 
 class HUnit(object):
@@ -21,7 +23,6 @@ class HUnit(object):
     def __init__(self, nm, seconds, count, stamp):
         self._name = nm
         self._one = seconds
-        self._first = None
         self._now = self.fromstamp(stamp)
         self._first = self._now + self._one
         self._width = (count-1)*seconds
@@ -50,6 +51,14 @@ class HUnit(object):
         
     def name(self):
         return self._name
+    
+    def backup(self, fileh, grp):
+        miscmod.backparm(self, grp, '_now')
+        miscmod.backparm(self, grp, '_first')
+        
+    def restore(self, fileh, grp):
+        miscmod.resparm(self, grp, '_now')
+        miscmod.resparm(self, grp, '_first')
 
 class History(object):
     onesecond = 1
@@ -67,9 +76,6 @@ class History(object):
         self._hour = HUnit('hours', self.onehour, flowtools.settings.maxhours, stamp)
         self._day = HUnit('days', self.oneday, flowtools.settings.maxdays, stamp)
 
-    def oldest(self):
-        return self._oldest
-            
     def tick(self):
         now = datetime.datetime.utcnow()
         stamp = native.query.mkstamp(now)
@@ -96,6 +102,9 @@ class History(object):
     def now(self):
         return self._now
     
+    def oldest(self):
+        return self._oldest
+    
     def seconds(self):
         return self._second
     
@@ -108,8 +117,24 @@ class History(object):
     def days(self):
         return self._day
     
+    def backup(self, fileh, grp):
+        miscmod.backparm(self, grp, '_now')
+        miscmod.backparm(self, grp, '_oldest')
+        
+        for obj in (self._second, self._minute, self._hour, self._day):
+            ogrp = fileh.create_group(grp, obj.name())
+            obj.backup(fileh, ogrp)
+        
+    def restore(self, fileh, grp):
+        #TODO: finish
+        miscmod.resparm(self, grp, '_now')
+        miscmod.resparm(self, grp, '_oldest')        
+        for obj in (self._second, self._minute, self._hour, self._day):
+            ogrp = fileh.get_node(grp, obj.name())
+            obj.restore(fileh, ogrp)
+    
 class FlowProc(connector.Connection):
-    def __init__(self, receiver):
+    def __init__(self, receiver, backloc):
         self._addresses = {}
         self._long_queries = {}
         self._periodic = {}
@@ -117,12 +142,39 @@ class FlowProc(connector.Connection):
         self._nbuf = native.query.QueryBuffer()
         self._history = History()
         self._apps = native.receiver.Apps()
+        self._backloc = backloc
+        
+        self._objmap = {'history':self._history,
+                        'apps':self._apps,
+                        'sources':self._nreceiver}
         
         receiver.sourcecallback(self._apps, self.onnewsource)
 
     def _send(self, addr, res):
         res = zmq.utils.jsonapi.dumps(res)
         self.send_multipart([addr, res])
+                    
+    def _on_backup(self, loc):
+        if loc is None:
+            return {"error":"backup folder was not provided at startup"}
+        start = datetime.datetime.now()
+        try:
+            fileh = tables.open_file(os.path.join(loc, 'collector.backup'), mode='w', title='Collector Backup')
+    
+            for nm, obj in self._objmap.items():
+                grp = fileh.create_group(fileh.root, nm)
+                obj.backup(fileh, grp)
+        except Exception, e:
+            return {"error":"can not do backup to '%s': %s"%(loc, str(e))}
+        end = datetime.datetime.now()
+        return {'done':'in %d seconds'%((end-start).total_seconds())}
+        
+    def _on_restore(self, loc):
+        fileh = tables.open_file(os.path.join(loc, 'collector.backup'))
+
+        for nm, obj in self._objmap.items():
+            grp = fileh.get_node(fileh.root, nm)
+            obj.restore(fileh, grp)
                     
     def _on_status(self, addr, req):
         if isinstance(req, dict):
@@ -244,6 +296,11 @@ class FlowProc(connector.Connection):
         if not (stat is None):
             self._on_status(addr, stat)
             return
+        backup = qry.get('backup', None)
+        if backup is not None:
+            res = self._on_backup(self._backloc)
+            self._send(addr, res)
+            return        
         logger.dump("unknown request: %s"%req)
         return
 
@@ -321,13 +378,13 @@ class ARecord(object):
     def address(self):
         return self._addr
         
-def setup(insock, servsock, qrysock):
+def setup(insock, servsock, qrysock, backup):
     try:
         conn = connector.Connector()
         
         recvr = native.receiver.Receiver(insock, conn.loop)
 
-        fproc = FlowProc(recvr)
+        fproc = FlowProc(recvr, backup)
         
         conn.timer(1, fproc.on_time)
 

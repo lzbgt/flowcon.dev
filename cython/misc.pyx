@@ -120,16 +120,22 @@ def toip(uint32_t ip):
         ip >>= 8
     return nm[:-1]
 
-def backtable(grp, nm, ents):
+def backtable(fileh, grp, nm, ents):
     tbl = fileh.create_table(grp, nm, ents.dtype, expectedrows=len(ents))
     tbl.append(ents)
     tbl.flush()
     
+def backval(grp, nm, val):
+    setattr(grp._v_attrs, nm, val)
+    
 def backparm(obj, grp, nm):
-    setattr(grp._v_attrs, nm, getattr(obj, nm))
+    backval(grp, nm, getattr(obj, nm))
+
+def resval(grp, nm):
+    return getattr(grp._v_attrs, nm)
 
 def resparm(obj, grp, nm):
-    setattr(obj, nm, getattr(grp._v_attrs, nm))
+    setattr(obj, nm, resval(grp, nm))
 
 
 def _dummy():

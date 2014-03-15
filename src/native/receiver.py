@@ -73,6 +73,13 @@ class Receiver(object):
         if qnat:
             self._nreceiver.unregister(qnat)
             
+    def backup(self, fileh, grp):
+        for src in self.sources():
+            src.backup(fileh, grp)
+        
+    def restore(self, fileh, grp):
+        self
+            
 class Sources(object):
 
     def __init__(self, apps, ip):
@@ -165,6 +172,13 @@ class Sources(object):
             if res is None:
                 return {"error":"don't know what to do with request", "request":req}
             return res
+        
+    def backup(self, fileh, grp):
+        self
+        
+    def restore(self, fileh, grp):
+        self
+
 
 class Apps(object):
     
@@ -182,3 +196,9 @@ class Apps(object):
         if res is None:
             return {"error":"don't know what to do with request", "request":req}
         return res
+    
+    def backup(self, fileh, grp):
+        self._nativeapps.backup(fileh, grp)
+        
+    def restore(self, fileh, grp):
+        self._nativeapps.restore(fileh, grp)
