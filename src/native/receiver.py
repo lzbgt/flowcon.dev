@@ -105,6 +105,13 @@ class Sources(object):
         libname = os.path.join(native.libloc, 'dayscoll.so')
         self._days = timecolmod.DaysCollector("D:"+self._name, self._ip, libname, 
                                               self._appflows, flowtools.settings.maxdays, stamp)
+        self._collmap = {'attrs':self._attrs,
+                         'flows':self._flows,
+                         'aflows':self._appflows,
+                         'seconds':self._seconds,
+                         'minutes':self._minutes,
+                         'hours':self._hours,
+                         'days':self._days}
         
     def getcollectors(self):
         return self._flows, self._attrs, self._seconds
@@ -174,10 +181,14 @@ class Sources(object):
             return res
         
     def backup(self, fileh, grp):
-        self
-        
+        for nm, obj in self._collmap.items():
+            ogrp = fileh.create_group(grp, nm)
+            obj.backup(fileh, ogrp)
+
     def restore(self, fileh, grp):
-        self
+        for nm, obj in self._collmap.items():
+            ogrp = fileh.get_node(grp, nm)
+            obj.restore(fileh, ogrp)
 
 
 class Apps(object):
