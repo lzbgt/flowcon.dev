@@ -4,7 +4,7 @@ Created on Jan 24, 2014
 @author: schernikov
 '''
 
-import socket, urlparse, datetime, os
+import socket, urlparse, datetime, os, re
 
 import native, flowtools.settings
 
@@ -12,6 +12,8 @@ recmod = native.loadmod('nreceiver')
 colmod = native.loadmod('collectors')
 timecolmod = native.loadmod('timecollect')
 appsmod = native.loadmod('napps')
+
+snamere = re.compile('S(\d{1,3})_(\d{1,3})_(\d{1,3})_(\d{1,3})')
 
 class Receiver(object):
 
@@ -42,11 +44,15 @@ class Receiver(object):
         data, addr = self._sock.recvfrom(2048); addr
         self._nreceiver.receive(data, len(data))
         
+    def _newsource(self, ip):
+        src = Sources(self._apps, ip)
+        self.allsources[ip] = src
+        return src
+            
     def find(self, ip):
         src = self.allsources.get(ip, None)
         if src is None:
-            src = Sources(self._apps, ip)
-            self.allsources[ip] = src
+            src = self._newsource(ip)
             if self._onsource: self._onsource(src)
 
         return src.getcollectors()
@@ -75,10 +81,22 @@ class Receiver(object):
             
     def backup(self, fileh, grp):
         for src in self.sources():
-            src.backup(fileh, grp)
+            nm = 'S'+src.name.replace('.', '_')
+            sgrp = fileh.create_group(grp, nm)
+            src.backup(fileh, sgrp)
+            fileh.flush()
         
     def restore(self, fileh, grp):
-        self
+        for sgrp in fileh.iter_nodes(grp):
+            m = snamere.match(sgrp._v_name)
+            if not m: continue
+            ip = 0
+            for p in m.groups():
+                ip <<= 8
+                ip += int(p)
+            src = self._newsource(ip)
+            src.restore(fileh, sgrp)
+            if self._onsource: self._onsource(src)
             
 class Sources(object):
 

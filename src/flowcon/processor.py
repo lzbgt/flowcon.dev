@@ -4,7 +4,7 @@ Created on Nov 25, 2013
 @author: schernikov
 '''
 
-import zmq, datetime, pprint, traceback, tables, os
+import zmq, datetime, pprint, traceback, tables, os, sys, shutil
 import dateutil.tz
 
 from zmq.eventloop import ioloop
@@ -158,23 +158,49 @@ class FlowProc(connector.Connection):
         if loc is None:
             return {"error":"backup folder was not provided at startup"}
         start = datetime.datetime.now()
+        fname = os.path.join(loc, 'collector.backup')
         try:
-            fileh = tables.open_file(os.path.join(loc, 'collector.backup'), mode='w', title='Collector Backup')
-    
-            for nm, obj in self._objmap.items():
-                grp = fileh.create_group(fileh.root, nm)
-                obj.backup(fileh, grp)
+            with tables.open_file(fname, mode='w', title='Collector Backup') as fileh:
+                for nm, obj in self._objmap.items():
+                    grp = fileh.create_group(fileh.root, nm)
+                    obj.backup(fileh, grp)
+                    fileh.flush()
         except Exception, e:
+            emsg = traceback.format_exc()
+            logger.dump('Backup failed: %s\n%s'%(str(e), emsg))
             return {"error":"can not do backup to '%s': %s"%(loc, str(e))}
+
         end = datetime.datetime.now()
-        return {'done':'in %d seconds'%((end-start).total_seconds())}
+        return {'done':'in %.1f seconds'%((end-start).total_seconds())}
         
     def _on_restore(self, loc):
-        fileh = tables.open_file(os.path.join(loc, 'collector.backup'))
-
-        for nm, obj in self._objmap.items():
-            grp = fileh.get_node(fileh.root, nm)
-            obj.restore(fileh, grp)
+        fname = os.path.join(loc, 'collector.backup')
+        if os.path.isfile(fname):
+            logger.dump("Nothing to restore from. %s does not exits"%(fname))
+            return
+        now = self._history.now()
+        try:
+            with tables.open_file(fname) as fileh:
+                for nm, obj in self._objmap.items():
+                    grp = fileh.get_node(fileh.root, nm)
+                    obj.restore(fileh, grp)
+                    
+            #TODO adjust time according to current value
+            renow = self._history.now()
+            if now < renow: raise Exception("Can not restore from future: %s < %s"%(querymod.tostamp(now), 
+                                                                                    querymod.tostamp(renow)))
+            logger.dump("Restoring with time gap of %s"%(elapsed(now-renow)))
+            now, secs, mins, hours, days = self._history.tick()
+            
+            for source in self._nreceiver.sources():
+                source.on_time(self._nbuf, secs, mins, hours, days)
+                
+            logger.dump("Restored in %s"%(elapsed(datetime.datetime.utcnow()-now)))
+        except Exception, e:
+            emsg = traceback.format_exc()
+            logger.dump("Restore from %s failed: %s\n%s"%(fname, str(e), emsg))
+            shutil.move(fname, fname+'.failed')
+            sys.exit(-1)
                     
     def _on_status(self, addr, req):
         if isinstance(req, dict):
@@ -218,9 +244,8 @@ class FlowProc(connector.Connection):
 #            fields[s.address()] = sorted([int(f) for f in s.fields()])
             stats.append(s.stats())
 #        res = {'fields':fields, 'stats':stats, 'apps':self._apps.report()}
-        d = datetime.datetime.utcnow().replace(tzinfo=tzutc)
-        res = {'oldest':str(self._history.oldest().replace(tzinfo=tzutc)),
-               'now':str(d),
+        res = {'oldest':querymod.tostamp(self._history.oldest()),
+               'now':querymod.tostamp(datetime.datetime.utcnow()),
                'stats':stats, 
                'apps':self._apps.status(),
                'querybuf':self._nbuf.status()}
@@ -300,6 +325,12 @@ class FlowProc(connector.Connection):
         if backup is not None:
             res = self._on_backup(self._backloc)
             self._send(addr, res)
+            return
+        backup = qry.get('restart', None)
+        if backup is not None:
+            res = self._on_backup(self._backloc)
+            self._send(addr, res)
+            sys.exit(0)
             return        
         logger.dump("unknown request: %s"%req)
         return
@@ -385,6 +416,8 @@ def setup(insock, servsock, qrysock, backup):
         recvr = native.receiver.Receiver(insock, conn.loop)
 
         fproc = FlowProc(recvr, backup)
+        if backup:
+            fproc._on_restore(backup)
         
         conn.timer(1, fproc.on_time)
 
@@ -394,3 +427,16 @@ def setup(insock, servsock, qrysock, backup):
         logger.dump("closing")
     finally:
         conn.close()
+
+def elapsed(delta):
+    sec = delta.total_seconds()
+    if sec < History.oneminute*2:
+        return "%.1f seconds"%(sec)
+    
+    if sec < History.onehour*2:
+        return "%.1f minutes"%(sec/History.oneminute)
+    
+    if sec < History.oneday*2:
+        return "%.1f hours"%(sec/History.onehour)
+    
+    return "%.1f days"%(sec/History.oneday)

@@ -9,7 +9,7 @@ cimport numpy as np
 
 from common cimport *
 from misc cimport logger, getreqval, debentries
-from misc import backtable, backparm, resparm
+from misc import backtable, backval, resval
 from collectors cimport Collector
 
 def _dummy():
@@ -58,14 +58,14 @@ cdef class Apps(Collector):
     def backup(self, fileh, grp):
         super(Apps, self).backup(fileh, grp)
         
-        backparm(self, grp, '_totalcount')
-        backparm(self, grp, '_zeroportcount')
+        backval(grp, 'totalcount', self._totalcount)
+        backval(grp, 'zeroportcount', self._zeroportcount)
 
         pgrp = fileh.create_group(grp, 'protocols')
         for pos in range(len(self._protobjs)):
             pobj = self._protobjs[pos]
             if pobj is None: continue
-            backtable(fileh, pgrp, 'p%d'%(pos), pobj)
+            backtable(fileh, pgrp, 'p%d'%(pos), pobj.view(dtype=[('count','u4')]))
     
     def restore(self, fileh, grp):
         cdef int protocol
@@ -91,8 +91,8 @@ cdef class Apps(Collector):
                 raise Exception("Unexpected table size: %d != %d"%(len(pobj), expsize))
             self._regprotocol(pobj, protocol)
         
-        resparm(self, grp, '_totalcount')    
-        resparm(self, grp, '_zeroportcount')
+        self._totalcount = <uint64_t>resval(grp, 'totalcount')    
+        self._zeroportcount = <uint64_t>resval(grp, 'zeroportcount')
         
         super(Apps, self).restore(fileh, grp)
     

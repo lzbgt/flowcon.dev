@@ -45,12 +45,12 @@ cdef class TimeCollector(object):
         self._last = self._counterset
         
     def backup(self, fileh, grp):
-        backtable(fileh, grp, 'ticks', self._ticks)
-        backtable(fileh, grp, 'stamps', self._stamps)
+        backtable(fileh, grp, 'ticks', np.asarray(self._ticks, dtype=[('tick',    'u4')]))
+        backtable(fileh, grp, 'stamps', np.asarray(self._stamps, dtype=[('stamp', 'u8')]))
         backtable(fileh, grp, 'counters', self.counters())
 
-        backparm(self, grp, '_currenttick')
-        backparm(self, grp, '_count')
+        backval(grp, 'currenttick', self._currenttick)
+        backval(grp, 'count', self._count)
         backval(grp, 'first', (<uint64_t>self._first)-(<uint64_t>self._counterset))
         backval(grp, 'last', (<uint64_t>self._last)-(<uint64_t>self._counterset))
 
@@ -68,7 +68,7 @@ cdef class TimeCollector(object):
         cdef uint64_t last = resval(grp, 'last')
         self._last = <void*>((<char*>self._counterset)+last)
         
-        resparm(self, grp, '_count')
+        self._count = <uint32_t>resval(grp, 'count')
         
         ticks = fileh.get_node(grp, 'ticks')
         if self._depth != len(ticks):
@@ -80,7 +80,7 @@ cdef class TimeCollector(object):
         stamps = fileh.get_node(grp, 'stamps')
         stamps.read(out=self._stamps)
 
-        resparm(self, grp, '_currenttick')
+        self._currenttick = <uint32_t>resval(grp, 'currenttick')
         
     @cython.boundscheck(False)
     cdef void _alloc(self, uint32_t size):
@@ -561,12 +561,12 @@ cdef class LongCollector(TimeCollector):
     def backup(self, fileh, grp):
         super(LongCollector, self).backup(fileh, grp)
 
-        backparm(self, grp, '_prevtickpos')
+        backval(grp, 'prevtickpos', self._prevtickpos)
 
     def restore(self, fileh, grp):
         super(LongCollector, self).restore(fileh, grp)
         
-        resparm(self, grp, '_prevtickpos')
+        self._prevtickpos = <uint32_t>resval(grp, 'prevtickpos')
 
 
 cdef class MinutesCollector(LongCollector):

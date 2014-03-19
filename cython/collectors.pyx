@@ -14,7 +14,7 @@ from common cimport *
 from napps cimport Apps
 
 from misc cimport logger, showapp, showflow, showattr, minsize, growthrate, shrinkrate, debentries 
-from misc import backtable, backparm, resparm
+from misc import backtable, backval, resval
 
 def _dummy():
     "exists only to get rid of compile warnings"
@@ -40,14 +40,14 @@ cdef class Collector(object):
     def backup(self, fileh, grp):
         backtable(fileh, grp, 'entries', self.entries())
         backtable(fileh, grp, 'indices', self.indices())
-        backparm(self, grp, 'freepos')
-        backparm(self, grp, 'freecount')
-        backparm(self, grp, 'end')
+        backval(grp, 'freepos', self.freepos)
+        backval(grp, 'freecount', self.freecount)
+        backval(grp, 'end', self.end)
 
     def restore(self, fileh, grp):
-        resparm(self, grp, 'freepos')
-        resparm(self, grp, 'freecount')
-        resparm(self, grp, 'end')
+        self.freepos = <uint32_t>resval(grp, 'freepos')
+        self.freecount = <uint32_t>resval(grp, 'freecount')
+        self.end = <uint32_t>resval(grp, 'end')
         
         ents = fileh.get_node(grp, 'entries')
         if self._width != ents.rowsize:
@@ -216,7 +216,7 @@ cdef class Collector(object):
         return self._entries.view(dtype=self.dtypes)[:,0]
     
     def indices(self):
-        return self._indices.view(dtype='u4')
+        return self._indices.view(dtype=[('index', 'u4')])
     
     @cython.boundscheck(False)
     cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil:
