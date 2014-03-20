@@ -26,6 +26,7 @@ class HUnit(object):
         self._now = self.fromstamp(stamp)
         self._first = self._now + self._one
         self._width = (count-1)*seconds
+        self._count = count
         
     @property
     def one(self):
@@ -45,6 +46,10 @@ class HUnit(object):
     @property
     def first(self):
         return self._first
+    
+    @property
+    def count(self):
+        return self._count
     
     def tick(self, now):
         self._now = now
@@ -76,15 +81,15 @@ class History(object):
         self._hour = HUnit('hours', self.onehour, flowtools.settings.maxhours, stamp)
         self._day = HUnit('days', self.oneday, flowtools.settings.maxdays, stamp)
 
-    def tick(self):
-        now = datetime.datetime.utcnow()
-        stamp = native.query.mkstamp(now)
+    def tick(self, stamp):
         self._now = datetime.datetime.utcfromtimestamp(stamp)
+        secs = None
         mins = None
         hours = None
         days = None
         if self._second.now != stamp:
             self._second.tick(stamp)
+            secs = stamp
             minute = self._minute.fromstamp(stamp)
             if self._minute.now != minute:
                 self._minute.tick(minute)
@@ -97,7 +102,7 @@ class History(object):
                     if self._day.now != day:
                         self._day.tick(day)
                         days = day
-        return now, stamp, mins, hours, days
+        return secs, mins, hours, days
     
     def now(self):
         return self._now
@@ -190,10 +195,24 @@ class FlowProc(connector.Connection):
             if now < renow: raise Exception("Can not restore from future: %s < %s"%(querymod.tostamp(now), 
                                                                                     querymod.tostamp(renow)))
             logger.dump("Restoring with time gap of %s"%(elapsed(now-renow)))
-            now, secs, mins, hours, days = self._history.tick()
-            
-            for source in self._nreceiver.sources():
-                source.on_time(self._nbuf, secs, mins, hours, days)
+
+            if renow < now:
+                units = [self._history.seconds(), self._history.minutes(), self._history.hours(), self._history.days()]
+                step = 0
+                end = 0
+                while renow < now:
+                    if units and renow > end:  # time to switch to bigger step
+                        renow -= step          # step back to previous time 
+                        unit = units.pop(0)
+                        step = unit.one
+                        end = renow+unit.count*step
+                        renow += step
+                    
+                    self._tick_sources(renow)
+                        
+                    renow += step
+                    
+                self._tick_sources(now)
                 
             logger.dump("Restored in %s"%(elapsed(datetime.datetime.utcnow()-now)))
         except Exception, e:
@@ -253,12 +272,12 @@ class FlowProc(connector.Connection):
              
     def on_time(self):
         # check for expired peers
-        now, secs, mins, hours, days = self._history.tick()
-
-        self._check_peers(now)
+        now = datetime.datetime.utcnow()
+        secs = native.query.mkstamp(now)
         
-        for source in self._nreceiver.sources():
-            source.on_time(self._nbuf, secs, mins, hours, days)
+        self._check_peers(now)
+
+        self._tick_sources(secs)
             
         for per in self._periodic.values():
             res = per.on_time(self._nbuf, now, secs)
@@ -267,6 +286,12 @@ class FlowProc(connector.Connection):
                 if qrec:
                     for addr in qrec.aset:
                         self.send_multipart([addr, res])
+
+    def _tick_sources(self, stamp):
+        secs, mins, hours, days = self._history.tick(stamp)
+        
+        for source in self._nreceiver.sources():
+            source.on_time(self._nbuf, secs, mins, hours, days)
 
     def onnewsource(self, src):
         print "created %s"%(src.name)

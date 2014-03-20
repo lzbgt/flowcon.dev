@@ -160,13 +160,14 @@ class Sources(object):
                         'days':self._days.status(self._hours)}}
 
     def on_time(self, qbuf, secs, mins, hours, days):
-        self._seconds.onsecond(self._apps._nativeapps, secs)
-        if mins:
-            self._minutes.onminute(qbuf._native, self._apps._nativeapps, self._appflows, self._seconds, mins)
-            if hours:
-                self._hours.onhour(qbuf._native, self._apps._nativeapps, self._appflows,  self._minutes, hours)
-                if days:
-                    self._days.onday(qbuf._native, self._apps._nativeapps, self._appflows,  self._hours, days)
+        if secs:
+            self._seconds.onsecond(self._apps._nativeapps, secs)
+            if mins:
+                self._minutes.onminute(qbuf._native, self._apps._nativeapps, self._appflows, self._seconds, mins)
+                if hours:
+                    self._hours.onhour(qbuf._native, self._apps._nativeapps, self._appflows,  self._minutes, hours)
+                    if days:
+                        self._days.onday(qbuf._native, self._apps._nativeapps, self._appflows,  self._hours, days)
         
     @property
     def name(self):
