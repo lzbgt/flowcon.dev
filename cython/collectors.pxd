@@ -21,15 +21,14 @@ cdef class Collector(object):
     cdef void _resize(self, uint32_t size)
     cdef void _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz) nogil
     cdef ipfix_store_entry* _get(self, int pos)
-    cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil
 
 cdef class FlowCollector(Collector):
     cdef AttrCollector _attributes
     
-    cdef void _onindex(self, ipfix_store_entry* entry, uint32_t index) nogil
     cdef const ipfix_store_flow* getflows(self) nogil
     cdef void remove(self, const ipfix_store_counts* counts, uint32_t num) nogil
     cdef void _shrink(self, uint32_t maxpos)
+    cdef void _report_attr(self, const ipfix_store_flow* flowrec, uint32_t index) nogil
 
 cdef class AttrCollector(Collector):
     pass

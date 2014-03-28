@@ -27,8 +27,13 @@ cdef class TimeCollector(object):
         self._ip = ip
         self._width = width
         self._depth = timedepth
-        self._ticks = np.zeros(timedepth, dtype=np.uint32)
-        self._stamps = np.zeros(timedepth, dtype=np.uint64)
+        self._ticksobj = np.zeros(timedepth, dtype=[('tick',    'u4')])
+        cdef np.ndarray[np.uint32_t, ndim=1] tarr = self._ticksobj
+        self._ticks = <uint32_t*>tarr.data
+        
+        self._stampsobj = np.zeros(timedepth, dtype=[('tick',    'u8')])
+        cdef np.ndarray[np.uint64_t, ndim=1] sarr = self._stampsobj
+        self._stamps = <uint64_t*>sarr.data
         
         for pos in range(timedepth):
             self._ticks[pos] = INVALID
@@ -45,8 +50,8 @@ cdef class TimeCollector(object):
         self._last = self._counterset
         
     def backup(self, fileh, grp):
-        backtable(fileh, grp, 'ticks', np.asarray(self._ticks, dtype=[('tick',    'u4')]))
-        backtable(fileh, grp, 'stamps', np.asarray(self._stamps, dtype=[('stamp', 'u8')]))
+        backtable(fileh, grp, 'ticks', self._ticksobj)
+        backtable(fileh, grp, 'stamps', self._stampsobj)
         backtable(fileh, grp, 'counters', self.counters())
 
         backval(grp, 'currenttick', self._currenttick)
@@ -75,10 +80,10 @@ cdef class TimeCollector(object):
             raise Exception("%s change in ticks depth can not be handled yet: %d != %d"%(self._name, 
                                                                                          self._depth,
                                                                                          len(ticks)))
-        ticks.read(out=self._ticks)
+        ticks.read(out=self._ticksobj)
         
         stamps = fileh.get_node(grp, 'stamps')
-        stamps.read(out=self._stamps)
+        stamps.read(out=self._stampsobj)
 
         self._currenttick = <uint32_t>resval(grp, 'currenttick')
         

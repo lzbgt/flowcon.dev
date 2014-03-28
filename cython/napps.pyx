@@ -54,6 +54,8 @@ cdef class Apps(Collector):
             self._protset[pos] = <uint64_t>NULL
             self._protobjs[pos] = None
             
+    def _countview(self, pobj):
+        return pobj.view(dtype=[('count','u4')])
     
     def backup(self, fileh, grp):
         super(Apps, self).backup(fileh, grp)
@@ -65,10 +67,11 @@ cdef class Apps(Collector):
         for pos in range(len(self._protobjs)):
             pobj = self._protobjs[pos]
             if pobj is None: continue
-            backtable(fileh, pgrp, 'p%d'%(pos), pobj.view(dtype=[('count','u4')]))
+            backtable(fileh, pgrp, 'p%d'%(pos), self._countview(pobj))
     
     def restore(self, fileh, grp):
         cdef int protocol
+        cdef countsobj
         pgrp = fileh.get_node(grp, 'protocols')
 
         for tbl in fileh.iter_nodes(pgrp, 'Table'):
@@ -86,10 +89,10 @@ cdef class Apps(Collector):
                 continue
 
             expsize = 2**16
-            pobj = tbl.read()
-            if len(pobj) != expsize:
-                raise Exception("Unexpected table size: %d != %d"%(len(pobj), expsize))
-            self._regprotocol(pobj, protocol)
+            countsobj = np.zeros(expsize, dtype=np.uint32)
+            tbl.read(out=self._countview(countsobj))
+
+            self._regprotocol(countsobj, protocol)
         
         self._totalcount = <uint64_t>resval(grp, 'totalcount')    
         self._zeroportcount = <uint64_t>resval(grp, 'zeroportcount')

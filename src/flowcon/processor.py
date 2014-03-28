@@ -180,10 +180,11 @@ class FlowProc(connector.Connection):
         
     def _on_restore(self, loc):
         fname = os.path.join(loc, 'collector.backup')
-        if os.path.isfile(fname):
+        if not os.path.isfile(fname):
             logger.dump("Nothing to restore from. %s does not exits"%(fname))
             return
         now = self._history.now()
+        nowstamp = self._history.seconds().now
         try:
             with tables.open_file(fname) as fileh:
                 for nm, obj in self._objmap.items():
@@ -196,23 +197,24 @@ class FlowProc(connector.Connection):
                                                                                     querymod.tostamp(renow)))
             logger.dump("Restoring with time gap of %s"%(elapsed(now-renow)))
 
-            if renow < now:
+            renowstamp = self._history.seconds().now
+            if renowstamp < nowstamp:
                 units = [self._history.seconds(), self._history.minutes(), self._history.hours(), self._history.days()]
                 step = 0
                 end = 0
-                while renow < now:
-                    if units and renow > end:  # time to switch to bigger step
-                        renow -= step          # step back to previous time 
+                while renowstamp < nowstamp:
+                    if units and renowstamp > end:  # time to switch to bigger step
+                        renowstamp -= step          # step back to previous time 
                         unit = units.pop(0)
                         step = unit.one
-                        end = renow+unit.count*step
-                        renow += step
+                        end = renowstamp+unit.count*step
+                        renowstamp += step
                     
-                    self._tick_sources(renow)
+                    self._tick_sources(renowstamp)
                         
-                    renow += step
+                    renowstamp += step
                     
-                self._tick_sources(now)
+                self._tick_sources(nowstamp)
                 
             logger.dump("Restored in %s"%(elapsed(datetime.datetime.utcnow()-now)))
         except Exception, e:
@@ -274,11 +276,11 @@ class FlowProc(connector.Connection):
         # check for expired peers
         now = datetime.datetime.utcnow()
         secs = native.query.mkstamp(now)
-        
+
         self._check_peers(now)
 
         self._tick_sources(secs)
-            
+
         for per in self._periodic.values():
             res = per.on_time(self._nbuf, now, secs)
             if res:

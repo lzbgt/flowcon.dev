@@ -17,8 +17,10 @@ cdef class TimeCollector(object):
     cdef uint32_t _maxcount
     cdef uint32_t _count
     cdef uint32_t _depth
-    cdef uint32_t [:] _ticks
-    cdef uint64_t [:] _stamps
+    cdef _ticksobj
+    cdef _stampsobj
+    cdef uint32_t* _ticks
+    cdef uint64_t* _stamps
     cdef uint32_t _currenttick
 
     cdef void _alloc(self, uint32_t size)
