@@ -100,29 +100,17 @@ cdef class Collector(object):
         cdef ipfix_store_entry* entryrec
         cdef int sz = self._width
         
-        #TMP
-#        with gil:
-#            print "%s: find 0x%08x, 0x%08x, %d"%(self._name, <uint64_t>ptr, <uint64_t>outpos, dsize)
-        #
-        
         #logger("adding to %s"%(self._name))
         crc = adler32(self.adler, <unsigned char*>ptr, dsize)
         ind = crc & self.mask
         pos = self.indexset[ind]
-        #TMP
-#        with gil:
-#            logger("  crc:%08x ind:%d pos:%d addr:%08x"%(crc, ind, pos, <uint64_t>cython.address(self.indexset[ind])))
-        #
+
         if pos > 0:
             while pos > 0:
                 entryrec = <ipfix_store_entry*>(self.entryset+pos*sz)
                 if memcmp(entryrec.data, ptr, dsize) == 0:
                     # found identical flow
                     outpos[0] = pos
-                    #TMP
-#                    with gil:
-#                        print "%s: done 1"%(self._name)
-                    #
                     return entryrec
                 pos = entryrec.next
             # need new
@@ -135,15 +123,8 @@ cdef class Collector(object):
 
             entryrec.next = pos # link to previous
         else:
-            #TMP
-#            with gil:
-#                logger("%s prefound: pos %d, count %d, end: %d max:%d"%(self._name, self.freepos, self.freecount, self.end, self.maxentries))
-            #
             pos = self._findnewpos(sz)
-            #TMP
-#            with gil:
-#                logger("  found:%d"%(pos))
-            #
+
             if pos == 0:    # need resize
                 with gil:
                     self._grow()
@@ -157,11 +138,7 @@ cdef class Collector(object):
         memcpy(entryrec.data, ptr, dsize)
 
         outpos[0] = pos
-        
-        #TMP
-#        with gil:
-#            print "%s: done 2"%(self._name)
-        #        
+
         return entryrec
 
     @cython.boundscheck(False)
@@ -183,24 +160,21 @@ cdef class Collector(object):
     
     @cython.boundscheck(False)
     cdef void _grow(self):
-        cdef uint32_t size = <uint32_t>(self.maxentries*growthrate)
-        self._resize(size)
-
-    @cython.boundscheck(False)
-    cdef void _resize(self, uint32_t size):
         cdef uint32_t count = self.end
-        cdef int sz = self._width
-        cdef uint32_t mask, ind, indpos, pos
-        cdef unsigned char* eset
-        cdef uint32_t* iset
-        cdef ipfix_store_entry* entry
+        cdef uint32_t size = <uint32_t>(self.maxentries*growthrate)
+            
+        if not self._resz(size): return    
 
-        #logger('resizing %s %d->%d'%(self._name, self.maxentries, size))
-        if not self._resz(size): return
+        if self.freepos != 0 or self.freecount != 0:
+            logger("%s growing with free list: count:%d"%(self._name, self.freecount))
+
+        cdef int sz = self._width
+        cdef uint32_t mask = self.mask, ind, indpos, pos
+        cdef unsigned char* eset = self.entryset
+        cdef uint32_t* iset = self.indexset
+        cdef ipfix_store_entry* entry
+        
         # lets fix indices and links
-        mask = self.mask
-        eset = self.entryset
-        iset = self.indexset
 
         for pos in range(1, count):
             entry = <ipfix_store_entry*>(eset+pos*sz)
@@ -209,7 +183,7 @@ cdef class Collector(object):
             iset[ind] = pos
     
     @cython.boundscheck(False)
-    cdef void _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz) nogil:
+    cdef int _removepos(self, ipfix_store_entry* entryrec, uint32_t pos, int sz) nogil:
         cdef ipfix_store_entry* prevrec
         cdef uint32_t ind, prevpos
         cdef unsigned char* eset = self.entryset
@@ -226,7 +200,7 @@ cdef class Collector(object):
                     with gil:
                         logger('%s: unexpected value for prevrec.next; prevpos:%d ind:%d pos:%d'%(self._name, 
                                                                                                   prevpos, ind, pos))
-                    return
+                    return 0
                 prevrec = <ipfix_store_entry*>(eset+prevpos*sz)
                 prevpos = prevrec.next
             prevrec.next = entryrec.next
@@ -234,6 +208,7 @@ cdef class Collector(object):
         entryrec.next = self.freepos
         self.freepos = pos
         self.freecount += 1
+        return 1
     
     @cython.boundscheck(False)
     cdef ipfix_store_entry* _get(self, int pos):
@@ -275,11 +250,26 @@ cdef class FlowCollector(Collector):
     @cython.boundscheck(False)
     cdef uint32_t _add(self, const void* ptr, uint32_t index, int dsize) nogil:
         cdef uint32_t pos
+        cdef uint32_t first = self.freepos, last = self.end
+        cdef ipfix_store_flow* nextflow
         
         cdef ipfix_store_flow* flowrec = <ipfix_store_flow*>self._findentry(ptr, cython.address(pos), dsize)
         
-        if flowrec.refcount == 0:
+        if flowrec.refcount == 0:   # just allocated
             flowrec.refcount = 1
+            if first == pos:    # it was allocated from free (assuming it is always first from free list)
+                if flowrec.attrindex != 0:
+                    with gil:
+                        logger("%s strange prev pos %d for %d"%(self._name, flowrec.attrindex, pos))
+                else:
+                    if self.freepos != 0:   # fix prev index of free list
+                        nextflow = <ipfix_store_flow*>(self.entryset+self.freepos*self._width)
+                        nextflow.attrindex = 0
+            elif last == pos:    # allocated from the end, not from free 
+                pass
+            else:               # this should never happen; some kind of error occurred
+                with gil:
+                    logger("%s strange addition: %d first:%d last:%d"%(self._name, pos, first, last))
             flowrec.attrindex = index
         else:
             flowrec.refcount += 1
@@ -314,6 +304,11 @@ cdef class FlowCollector(Collector):
         cdef ipfix_store_flow* nextflow
         cdef uint32_t pos, maxindex = 0, index
         
+        #TMP
+#        with gil:
+#            self._check_free("  rm before:")
+        #
+        
         for pos in range(num):
             index = counts[pos].flowindex
 
@@ -328,10 +323,15 @@ cdef class FlowCollector(Collector):
                 flow.refcount -= 1
                 continue
 
-            flow.refcount = 0
             if maxindex < index: maxindex = index
 
-            self._removepos(<ipfix_store_entry*>flow, index, sz) # delete entry
+            if self._removepos(<ipfix_store_entry*>flow, index, sz) == 0: # delete entry
+                pass
+                #TMP
+                with gil:
+                    self._check_free("  failed:")
+                    self._check_used("  failed:")
+                #
             # let's link removed flow in reverse direction;
             # assuming flow is first in free list
             if flow.next != 0:
@@ -341,24 +341,36 @@ cdef class FlowCollector(Collector):
             else:
                 flow.attrindex = 0
 
-        if maxindex > 0:            # something was actually deleted
-            with gil:
-                self._shrink(maxindex)    # try to shrink
+            flow.refcount = 0
+
+        #TMP
+#        with gil:
+#            self._check_free("  rm after:")
+        #
+
+        if maxindex > 0 and maxindex == (self.end-1):            # something was actually deleted at the end 
+            self._shrink(maxindex)    # try to shrink
         
     @cython.boundscheck(False)
-    cdef void _shrink(self, uint32_t maxpos):
+    cdef void _shrink(self, uint32_t maxpos) nogil:
         cdef uint32_t newsize
         cdef uint32_t last = self.end-1
 
-        if maxpos != last: return
-
-        logger("%s: shrinking %d"%(self._name, maxpos))
+        #TMP
+#        with gil:
+#            logger("%s: shrinking %d"%(self._name, maxpos))
+        #
         
         cdef unsigned char* eset = self.entryset        
         cdef uint32_t sz = self._width
         cdef ipfix_store_flow* flow = <ipfix_store_flow*>(eset+maxpos*sz)
         cdef ipfix_store_flow* nextflow
         cdef ipfix_store_flow* prevflow
+
+        #TMP
+#        with gil:
+#            self._check_free("  sh before:")
+        #
 
         # let's shrink inventory until first non-free record
         while flow.refcount == 0:
@@ -376,10 +388,116 @@ cdef class FlowCollector(Collector):
             flow = <ipfix_store_flow*>(eset+last*sz)
 
         self.end = last+1
+        #TMP
+#        with gil:
+#            self._check_free("  sh after:")
+        #
+                
         if last*3 < self.maxentries: # need to shrink whole buffer to release some unused memory
             newsize = <uint32_t>(self.maxentries/shrinkrate)
             if newsize < minsize: return
-            self._resize(newsize)
+            with gil:
+                self._reduce(newsize)
+
+    @cython.boundscheck(False)
+    cdef void _reduce(self, uint32_t size):
+        if not self._resz(size): return
+        
+        cdef uint32_t count = self.end
+        cdef int sz = self._width
+        cdef uint32_t mask = self.mask, ind, indpos, pos
+        cdef unsigned char* eset = self.entryset
+        cdef uint32_t* iset = self.indexset
+        cdef ipfix_store_flow* flow
+        
+        # lets fix indices and links
+        for pos in range(1, count):
+            flow = <ipfix_store_flow*>(eset+pos*sz)
+            if flow.refcount == 0: continue     # don't touch free entries
+            ind = flow.crc & mask
+            flow.next = iset[ind]
+            iset[ind] = pos
+
+    @cython.boundscheck(False)
+    cdef void _check_used(self, msg):
+        cdef unsigned char* eset = self.entryset
+        cdef uint32_t sz = self._width
+        cdef uint32_t pos, ind, other, count
+        cdef ipfix_store_flow* flow
+        cdef ipfix_store_flow* oflow
+        
+        for pos in range(1, self.end):
+            flow = <ipfix_store_flow*>(eset+pos*sz)
+            if flow.refcount == 0: continue
+            ind = flow.crc & self.mask
+            other = self.indexset[ind]
+            if other == 0 or other >= self.end:
+                logger("%s index is invalid: %d crc:0x%08x ind:%d indpos:%d"%(msg, pos, flow.crc, ind, other))
+                continue
+            while other != pos:
+                oflow = <ipfix_store_flow*>(eset+other*sz)
+                other = oflow.next
+                if other == 0:
+                    logger("%s not linked: %d crc:0x%08x ind:%d"%(msg, pos, flow.crc, ind))
+                    break
+        count = 0
+        for ind in range(len(self._indices)):
+            pos = self.indexset[ind]
+            if pos == 0: continue
+            if pos >= self.end:
+                logger("%s index strange: %d ind:%d"%(msg, pos, ind))
+                continue
+            flow = <ipfix_store_flow*>(eset+pos*sz)
+            while True:
+                if flow.refcount == 0: 
+                    logger("%s unexpected refcount: %d"%(msg, pos))
+                    break
+                count += 1
+                pos = flow.next
+                if pos == 0: break
+                flow = <ipfix_store_flow*>(eset+pos*sz)
+        if count != (self.end-1-self.freecount):
+            logger("%s unexpected use count: %d != %d"%(msg, count, self.end-1-self.freecount))
+            return
+
+    @cython.boundscheck(False)
+    cdef void _check_free(self, msg):
+        cdef unsigned char* eset = self.entryset        
+        cdef uint32_t sz = self._width
+
+        if self.freepos == 0 or self.freecount == 0:
+            if self.freepos != 0 or self.freecount != 0:
+                logger("%s free is broken: pos:%d count:%d"%(msg, self.freepos, self.freecount))
+            return
+        cdef uint32_t pos = self.freepos
+        cdef ipfix_store_flow* flow
+        cdef ipfix_store_flow* nextflow
+        cdef uint32_t count = 1
+
+        flow = <ipfix_store_flow*>(eset+pos*sz)
+        if flow.attrindex != 0:
+            logger("%s broken first free: %d"%(msg, flow.attrindex))
+            return
+        if flow.refcount != 0:
+            logger("%s non-free refcount: %d at %d"%(msg, flow.refcount, count))
+            return
+
+        while flow.next > 0:
+            nextflow = <ipfix_store_flow*>(eset+flow.next*sz)
+            if nextflow.refcount != 0:
+                logger("%s non-free refcount: %d at %d"%(msg, nextflow.refcount, count))
+                return
+            if pos != nextflow.attrindex:
+                logger("%s back-link broken: %d != %d at %d"%(msg, pos, nextflow.attrindex, count))
+                return
+            count += 1
+            pos = flow.next
+            flow = nextflow
+
+        if count != self.freecount:
+            logger("%s free count mismatch: %d != %d"%(msg, count, self.freecount))
+            return
+        
 
     def debug(self, req):
         return debentries(req, 'flows', self.entries(), 
