@@ -220,7 +220,7 @@ class FQuery(Query):
         self._shape = self._on_shape(shape)
         
     def _on_shape(self, shape):
-        if not shape: return None
+        if not shape: return (None, None, 0)
         field = shape.get('max', None)
         if field is None:
             field = shape.get('min', None)
